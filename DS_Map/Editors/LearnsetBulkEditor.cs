@@ -5,6 +5,8 @@ using System.Drawing;
 using System.Data;
 using System.Linq;
 using System.Windows.Forms;
+using System.IO;
+using System.Text;
 
 namespace DSPRE.Editors
 {
@@ -21,14 +23,46 @@ namespace DSPRE.Editors
         private bool changesSaved = false;
         private string currentFilterText = "";
 
+        // Lookup dictionaries for import validation (built from ROM data)
+        private Dictionary<string, int> pokemonNameToId;
+        private Dictionary<string, int> moveNameToId;
+
         public LearnsetBulkEditor(BindingList<LearnsetEntry> learnsetData, string[] pokemonNames, string[] moveNames)
         {
             //InitializeComponent(); // we set up controls manually
             this.learnsetData = learnsetData;
             this.pokemonNames = pokemonNames;
             this.moveNames = moveNames;
+            
+            // Build lookup dictionaries from ROM data for strict validation
+            BuildLookupDictionaries();
+            
             SetupControls();
+        }
 
+        private void BuildLookupDictionaries()
+        {
+            // Build pokemon name -> ID lookup (case-insensitive)
+            pokemonNameToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < pokemonNames.Length; i++)
+            {
+                string name = pokemonNames[i];
+                if (!string.IsNullOrEmpty(name) && !pokemonNameToId.ContainsKey(name))
+                {
+                    pokemonNameToId[name] = i;
+                }
+            }
+
+            // Build move name -> ID lookup (case-insensitive)
+            moveNameToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < moveNames.Length; i++)
+            {
+                string name = moveNames[i];
+                if (!string.IsNullOrEmpty(name) && !moveNameToId.ContainsKey(name))
+                {
+                    moveNameToId[name] = i;
+                }
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -155,6 +189,19 @@ namespace DSPRE.Editors
                 btnReplaceMove
             });
 
+            var btnImportExport = new ToolStripDropDownButton("Import/Export");
+
+            var btnExportCSV = new ToolStripMenuItem("Export to CSV...");
+            btnExportCSV.Click += (s, e) => ExportToCSV();
+
+            var btnImportCSV = new ToolStripMenuItem("Import from CSV...");
+            btnImportCSV.Click += (s, e) => ImportFromCSV();
+
+            btnImportExport.DropDownItems.AddRange(new ToolStripItem[] {
+                btnExportCSV,
+                btnImportCSV
+            });
+
             var sep = new ToolStripSeparator();
 
             var lblFilter = new ToolStripLabel("Filter:");
@@ -162,7 +209,7 @@ namespace DSPRE.Editors
             txtFilter.TextChanged += (s, e) => FilterData(txtFilter.Text);
 
             toolStrip.Items.AddRange(new ToolStripItem[] {
-                btnSave, btnAddMove, btnDelete, btnSort, btnBulkOps, sep, lblFilter, txtFilter
+                btnSave, btnAddMove, btnDelete, btnSort, btnBulkOps, btnImportExport, sep, lblFilter, txtFilter
             });
 
             statusStrip = new StatusStrip { Dock = DockStyle.Bottom };
@@ -581,6 +628,354 @@ namespace DSPRE.Editors
         }
         #endregion
 
+        #region Import/Export Operations
+        private void ExportToCSV()
+        {
+            using (var saveDialog = new SaveFileDialog())
+            {
+                saveDialog.Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*";
+                saveDialog.DefaultExt = "csv";
+                saveDialog.FileName = "LearnsetData.csv";
+                saveDialog.Title = "Export Learnset Data to CSV";
+
+                if (saveDialog.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        using (var writer = new StreamWriter(saveDialog.FileName))
+                        {
+                            // Write header
+                            writer.WriteLine("ID,Name,Level,Move");
+
+                            // Group by Pokemon ID and write entries
+                            var grouped = learnsetData
+                                .GroupBy(x => x.PokemonID)
+                                .OrderBy(g => g.Key);
+
+                            foreach (var group in grouped)
+                            {
+                                foreach (var entry in group.OrderBy(x => x.Level))
+                                {
+                                    writer.WriteLine($"{entry.PokemonID},{entry.PokemonName},{entry.Level},{entry.MoveName}");
+                                }
+                            }
+                        }
+
+                        MessageBox.Show($"Learnset data exported successfully to:\n{saveDialog.FileName}",
+                            "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error exporting data: {ex.Message}", "Export Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        private void ImportFromCSV()
+        {
+            using (var openDialog = new OpenFileDialog())
+            {
+                openDialog.Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*";
+                openDialog.DefaultExt = "csv";
+                openDialog.Title = "Import Learnset Data from CSV";
+
+                if (openDialog.ShowDialog() == DialogResult.OK)
+                {
+                    var importResult = ValidateAndParseCSV(openDialog.FileName);
+
+                    // Show the import preview dialog
+                    using (var previewForm = new LearnsetImportPreviewForm(importResult, pokemonNames, moveNames, learnsetData))
+                    {
+                        if (previewForm.ShowDialog() == DialogResult.OK)
+                        {
+                            // Apply the changes
+                            ApplyImportedData(importResult.ValidEntries);
+                        }
+                    }
+                }
+            }
+        }
+
+        private LearnsetImportResult ValidateAndParseCSV(string filePath)
+        {
+            var result = new LearnsetImportResult();
+
+            try
+            {
+                var lines = File.ReadAllLines(filePath);
+                
+                if (lines.Length == 0)
+                {
+                    result.Errors.Add(new ImportError(0, "File is empty."));
+                    return result;
+                }
+
+                // Validate header
+                var header = lines[0].Split(',');
+                if (header.Length < 4 || 
+                    !header[0].Trim().Equals("ID", StringComparison.OrdinalIgnoreCase) ||
+                    !header[1].Trim().Equals("Name", StringComparison.OrdinalIgnoreCase) ||
+                    !header[2].Trim().Equals("Level", StringComparison.OrdinalIgnoreCase) ||
+                    !header[3].Trim().Equals("Move", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Errors.Add(new ImportError(1, $"Invalid header. Expected: 'ID,Name,Level,Move'. Got: '{lines[0]}'"));
+                    return result;
+                }
+
+                result.TotalRowsRead = lines.Length - 1; // Exclude header
+
+                // Parse each data row
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    int lineNumber = i + 1; // 1-based line number for user display
+                    var line = lines[i];
+
+                    // Skip empty lines
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    var parts = ParseCSVLine(line);
+
+                    if (parts.Length < 4)
+                    {
+                        result.Errors.Add(new ImportError(lineNumber, $"Invalid number of columns. Expected 4, got {parts.Length}. Line: '{line}'"));
+                        continue;
+                    }
+
+                    var rowResult = ValidateRow(lineNumber, parts[0], parts[1], parts[2], parts[3]);
+                    
+                        if (rowResult.IsEmptyRow)
+                        {
+                            // Skip empty rows but don't count as errors
+                            continue;
+                        }
+                    
+                        // Collect warnings even from valid rows
+                        result.Warnings.AddRange(rowResult.Warnings);
+                        
+                        // Collect name mismatches
+                        result.NameMismatches.AddRange(rowResult.NameMismatches);
+                    
+                        if (rowResult.IsValid)
+                        {
+                            result.ValidEntries.Add(rowResult.Entry);
+                        }
+                        else
+                        {
+                            result.Errors.AddRange(rowResult.Errors);
+                        }
+                    }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add(new ImportError(0, $"Failed to read file: {ex.Message}"));
+            }
+
+            return result;
+        }
+
+        private string[] ParseCSVLine(string line)
+        {
+            // Simple CSV parsing that handles quoted values
+            var result = new List<string>();
+            var current = new StringBuilder();
+            bool inQuotes = false;
+
+            foreach (char c in line)
+            {
+                if (c == '"')
+                {
+                    inQuotes = !inQuotes;
+                }
+                else if (c == ',' && !inQuotes)
+                {
+                    result.Add(current.ToString().Trim());
+                    current.Clear();
+                }
+                else
+                {
+                    current.Append(c);
+                }
+            }
+            result.Add(current.ToString().Trim());
+
+            return result.ToArray();
+        }
+
+        private RowValidationResult ValidateRow(int lineNumber, string idStr, string nameStr, string levelStr, string moveStr)
+        {
+            var result = new RowValidationResult { LineNumber = lineNumber };
+
+            // Validate Pokemon ID
+            int pokemonId;
+            if (!int.TryParse(idStr.Trim(), out pokemonId))
+            {
+                result.Errors.Add(new ImportError(lineNumber, $"Invalid Pokemon ID '{idStr}'. Must be a number."));
+            }
+            else if (pokemonId < 0 || pokemonId >= pokemonNames.Length)
+            {
+                result.Errors.Add(new ImportError(lineNumber, $"Pokemon ID {pokemonId} is out of range. Valid range: 0-{pokemonNames.Length - 1}"));
+            }
+            else
+            {
+                result.Entry.PokemonID = pokemonId;
+            }
+
+            // Validate Pokemon Name (cross-reference with ID)
+            string pokemonName = nameStr.Trim();
+            if (result.Entry.PokemonID >= 0 && result.Entry.PokemonID < pokemonNames.Length)
+            {
+                string expectedName = pokemonNames[result.Entry.PokemonID];
+                if (!pokemonName.Equals(expectedName, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Name doesn't match ID at all - this is a warning but we'll use the ID
+                    result.Warnings.Add(new ImportWarning(lineNumber, 
+                        $"Pokemon name '{pokemonName}' doesn't match ID {result.Entry.PokemonID} (expected '{expectedName}'). Using ID."));
+                    
+                    // Track as potential name rename (user might want to rename the Pokemon in ROM)
+                    result.NameMismatches.Add(new NameMismatch(
+                        NameMismatch.MismatchType.Pokemon,
+                        result.Entry.PokemonID,
+                        expectedName,
+                        pokemonName,
+                        lineNumber));
+                }
+                else if (!pokemonName.Equals(expectedName, StringComparison.Ordinal))
+                {
+                    // Names match case-insensitively but differ in case - not a true mismatch, just case difference
+                    // Don't add to NameMismatches since it's just a case difference
+                }
+                result.Entry.PokemonName = expectedName;
+            }
+            else if (pokemonNameToId.TryGetValue(pokemonName, out int resolvedId))
+            {
+                // ID was invalid but name is valid - use the name
+                result.Entry.PokemonID = resolvedId;
+                result.Entry.PokemonName = pokemonNames[resolvedId];
+                result.Warnings.Add(new ImportWarning(lineNumber,
+                    $"Invalid ID '{idStr}' but name '{pokemonName}' resolved to ID {resolvedId}."));
+            }
+            else
+            {
+                result.Errors.Add(new ImportError(lineNumber, 
+                    $"Cannot resolve Pokemon. ID '{idStr}' is invalid and name '{pokemonName}' not found in ROM data."));
+            }
+
+            // Validate Level
+            int level;
+            if (string.IsNullOrWhiteSpace(levelStr))
+            {
+                // Empty level - this row might be intentionally empty (Pokemon with no moves)
+                result.IsEmptyRow = true;
+                return result;
+            }
+            
+            if (!int.TryParse(levelStr.Trim(), out level))
+            {
+                result.Errors.Add(new ImportError(lineNumber, $"Invalid level '{levelStr}'. Must be a number."));
+            }
+            else if (level < 1 || level > 100)
+            {
+                result.Errors.Add(new ImportError(lineNumber, $"Level {level} is out of range. Valid range: 1-100"));
+            }
+            else
+            {
+                result.Entry.Level = level;
+            }
+
+            // Validate Move
+            string moveName = moveStr.Trim();
+            if (string.IsNullOrWhiteSpace(moveName))
+            {
+                result.IsEmptyRow = true;
+                return result;
+            }
+
+            if (moveNameToId.TryGetValue(moveName, out int moveId))
+            {
+                result.Entry.MoveID = moveId;
+                string romMoveName = moveNames[moveId];
+                result.Entry.MoveName = romMoveName;
+                
+                // Check if the CSV name differs from ROM name (beyond just case)
+                if (!moveName.Equals(romMoveName, StringComparison.Ordinal) && 
+                    !moveName.Equals(romMoveName, StringComparison.OrdinalIgnoreCase))
+                {
+                    // This shouldn't happen since we matched case-insensitively, but just in case
+                }
+                else if (!moveName.Equals(romMoveName, StringComparison.Ordinal))
+                {
+                    // Matched case-insensitively but text differs (e.g., "POUND" vs "Pound" - just case)
+                    // Only track if it's a real text difference, not just case
+                    // Actually, we want to detect if user typed something like "pound them" vs "Pound"
+                    // The case-insensitive match means they're the same text, different case only
+                }
+            }
+            else
+            {
+                // Try to find a close match for better error message
+                var closestMatch = FindClosestMatch(moveName, moveNames);
+                string suggestion = closestMatch != null ? $" Did you mean '{closestMatch}'?" : "";
+                result.Errors.Add(new ImportError(lineNumber, 
+                    $"Move '{moveName}' not found in ROM data.{suggestion}"));
+            }
+
+            result.IsValid = result.Errors.Count == 0 && !result.IsEmptyRow;
+            return result;
+        }
+
+        private string FindClosestMatch(string input, string[] candidates)
+        {
+            if (string.IsNullOrEmpty(input)) return null;
+
+            string inputLower = input.ToLowerInvariant();
+            string bestMatch = null;
+            int bestScore = int.MaxValue;
+
+            foreach (var candidate in candidates)
+            {
+                if (string.IsNullOrEmpty(candidate)) continue;
+
+                string candidateLower = candidate.ToLowerInvariant();
+
+                // Simple Levenshtein-like scoring
+                if (candidateLower.Contains(inputLower) || inputLower.Contains(candidateLower))
+                {
+                    int score = Math.Abs(candidate.Length - input.Length);
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        bestMatch = candidate;
+                    }
+                }
+            }
+
+            return bestScore <= 5 ? bestMatch : null;
+        }
+
+        private void ApplyImportedData(List<LearnsetEntry> importedEntries)
+        {
+            // Clear existing data and add imported entries
+            learnsetData.Clear();
+
+            foreach (var entry in importedEntries)
+            {
+                learnsetData.Add(entry);
+            }
+
+            // Sort the data
+            SortAllLearnsets();
+            
+            RefreshCurrentFilter();
+            UpdateStatus($"Imported {importedEntries.Count} entries successfully.");
+            SetDirty();
+        }
+        #endregion
+
         #region Helper Methods
         private List<int> GetSelectedPokemonIds()
         {
@@ -903,11 +1298,701 @@ namespace DSPRE.Editors
     }
 
     public enum LevelOperation
-    {
-        Add,
-        Subtract,
-        Set
-    }
+        {
+            Add,
+            Subtract,
+            Set
+        }
 
-    #endregion
-}
+        #region Import Support Classes
+        public class ImportError
+        {
+            public int LineNumber { get; }
+            public string Message { get; }
+
+            public ImportError(int lineNumber, string message)
+            {
+                LineNumber = lineNumber;
+                Message = message;
+            }
+
+            public override string ToString() => LineNumber > 0 ? $"Line {LineNumber}: {Message}" : Message;
+        }
+
+        public class ImportWarning
+        {
+            public int LineNumber { get; }
+            public string Message { get; }
+
+            public ImportWarning(int lineNumber, string message)
+            {
+                LineNumber = lineNumber;
+                Message = message;
+            }
+
+            public override string ToString() => LineNumber > 0 ? $"Line {LineNumber}: {Message}" : Message;
+        }
+
+        public class RowValidationResult
+        {
+            public int LineNumber { get; set; }
+            public LearnsetEntry Entry { get; set; } = new LearnsetEntry();
+            public List<ImportError> Errors { get; set; } = new List<ImportError>();
+            public List<ImportWarning> Warnings { get; set; } = new List<ImportWarning>();
+            public List<NameMismatch> NameMismatches { get; set; } = new List<NameMismatch>();
+            public bool IsValid { get; set; }
+            public bool IsEmptyRow { get; set; }
+        }
+
+        public class NameMismatch
+        {
+            public enum MismatchType { Pokemon, Move }
+            
+            public MismatchType Type { get; }
+            public int Id { get; }
+            public string RomName { get; }
+            public string CsvName { get; }
+            public int LineNumber { get; }
+
+            public NameMismatch(MismatchType type, int id, string romName, string csvName, int lineNumber)
+            {
+                Type = type;
+                Id = id;
+                RomName = romName;
+                CsvName = csvName;
+                LineNumber = lineNumber;
+            }
+
+            public override string ToString() => 
+                $"{Type} ID {Id}: ROM has '{RomName}', CSV has '{CsvName}' (Line {LineNumber})";
+        }
+
+        public class LearnsetImportResult
+        {
+            public List<LearnsetEntry> ValidEntries { get; set; } = new List<LearnsetEntry>();
+            public List<ImportError> Errors { get; set; } = new List<ImportError>();
+            public List<ImportWarning> Warnings { get; set; } = new List<ImportWarning>();
+            public List<NameMismatch> NameMismatches { get; set; } = new List<NameMismatch>();
+            public int TotalRowsRead { get; set; }
+
+            public bool HasErrors => Errors.Count > 0;
+            public bool HasWarnings => Warnings.Count > 0;
+            public bool HasNameMismatches => NameMismatches.Count > 0;
+            public int ValidCount => ValidEntries.Count;
+            public int ErrorCount => Errors.Count;
+            
+            /// <summary>
+            /// Gets unique move name mismatches (by move ID, taking first occurrence)
+            /// </summary>
+            public List<NameMismatch> UniqueMoveNameMismatches => 
+                NameMismatches
+                    .Where(m => m.Type == NameMismatch.MismatchType.Move)
+                    .GroupBy(m => m.Id)
+                    .Select(g => g.First())
+                    .ToList();
+            
+            /// <summary>
+            /// Gets unique Pokemon name mismatches (by Pokemon ID, taking first occurrence)
+            /// </summary>
+            public List<NameMismatch> UniquePokemonNameMismatches => 
+                NameMismatches
+                    .Where(m => m.Type == NameMismatch.MismatchType.Pokemon)
+                    .GroupBy(m => m.Id)
+                    .Select(g => g.First())
+                    .ToList();
+        }
+
+        public class LearnsetImportPreviewForm : Form
+        {
+            private TabControl tabControl;
+            private TextBox txtSummary;
+            private TextBox txtErrors;
+            private TextBox txtChanges;
+            private TextBox txtValidValues;
+            private TextBox txtNameMismatches;
+            private CheckedListBox chkPokemonRenames;
+            private CheckedListBox chkMoveRenames;
+            private CheckBox chkUseTitleCase;
+            private Button btnApply;
+            private Button btnCancel;
+            private LearnsetImportResult importResult;
+            private BindingList<LearnsetEntry> currentData;
+            private string[] pokemonNames;
+            private string[] moveNames;
+
+            public LearnsetImportPreviewForm(LearnsetImportResult result, string[] pokemonNames, string[] moveNames, BindingList<LearnsetEntry> currentData)
+            {
+                this.importResult = result;
+                this.pokemonNames = pokemonNames;
+                this.moveNames = moveNames;
+                this.currentData = currentData;
+                InitializeComponent();
+                PopulateData();
+            }
+
+            private void InitializeComponent()
+            {
+                this.Size = new Size(800, 600);
+                this.Text = "Import Preview";
+                this.FormBorderStyle = FormBorderStyle.Sizable;
+                this.StartPosition = FormStartPosition.CenterParent;
+                this.MinimumSize = new Size(600, 400);
+
+                var mainLayout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    RowCount = 2,
+                    ColumnCount = 1,
+                    Padding = new Padding(10)
+                };
+                mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+
+                // Tab control for different views
+                tabControl = new TabControl { Dock = DockStyle.Fill };
+
+                // Summary tab
+                var summaryTab = new TabPage("Summary");
+                txtSummary = new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Both,
+                    Font = new Font("Consolas", 10f),
+                    WordWrap = false
+                };
+                summaryTab.Controls.Add(txtSummary);
+
+                // Errors tab
+                var errorsTab = new TabPage("Errors & Warnings");
+                txtErrors = new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Both,
+                    Font = new Font("Consolas", 10f),
+                    WordWrap = false,
+                    ForeColor = Color.DarkRed
+                };
+                errorsTab.Controls.Add(txtErrors);
+
+                // Changes preview tab
+                var changesTab = new TabPage("Changes Preview");
+                txtChanges = new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Both,
+                    Font = new Font("Consolas", 9f),
+                    WordWrap = false
+                };
+                changesTab.Controls.Add(txtChanges);
+
+                // Name Mismatches tab (new)
+                var nameMismatchesTab = new TabPage("Name Mismatches");
+                var mismatchLayout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    RowCount = 4,
+                    ColumnCount = 1
+                };
+                mismatchLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
+                mismatchLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+                mismatchLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+                mismatchLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+
+                txtNameMismatches = new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Vertical,
+                    Font = new Font("Consolas", 9f),
+                    WordWrap = true
+                };
+
+                var pokemonGroup = new GroupBox { Text = "Pokemon Name Mismatches (check to rename in ROM)", Dock = DockStyle.Fill };
+                chkPokemonRenames = new CheckedListBox { Dock = DockStyle.Fill };
+                pokemonGroup.Controls.Add(chkPokemonRenames);
+
+                var moveGroup = new GroupBox { Text = "Move Name Mismatches (check to rename in ROM)", Dock = DockStyle.Fill };
+                chkMoveRenames = new CheckedListBox { Dock = DockStyle.Fill };
+                moveGroup.Controls.Add(chkMoveRenames);
+
+                var optionsPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+                chkUseTitleCase = new CheckBox { Text = "Convert names to Title Case", Checked = true, AutoSize = true };
+                optionsPanel.Controls.Add(chkUseTitleCase);
+
+                mismatchLayout.Controls.Add(txtNameMismatches, 0, 0);
+                mismatchLayout.Controls.Add(pokemonGroup, 0, 1);
+                mismatchLayout.Controls.Add(moveGroup, 0, 2);
+                mismatchLayout.Controls.Add(optionsPanel, 0, 3);
+                nameMismatchesTab.Controls.Add(mismatchLayout);
+
+                // Valid Values Reference tab
+                var validValuesTab = new TabPage("Valid Values Reference");
+                txtValidValues = new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Both,
+                    Font = new Font("Consolas", 9f),
+                    WordWrap = false
+                };
+                validValuesTab.Controls.Add(txtValidValues);
+
+                tabControl.TabPages.AddRange(new TabPage[] { summaryTab, errorsTab, changesTab, nameMismatchesTab, validValuesTab });
+
+                // Button panel
+                var buttonPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(0, 10, 0, 0)
+                };
+
+                btnCancel = new Button
+                {
+                    Text = "Cancel",
+                    DialogResult = DialogResult.Cancel,
+                    Size = new Size(100, 30)
+                };
+
+                btnApply = new Button
+                {
+                    Text = "Apply Changes",
+                    Size = new Size(120, 30)
+                };
+                btnApply.Click += BtnApply_Click;
+
+                buttonPanel.Controls.AddRange(new Control[] { btnCancel, btnApply });
+
+                mainLayout.Controls.Add(tabControl, 0, 0);
+                mainLayout.Controls.Add(buttonPanel, 0, 1);
+
+                this.Controls.Add(mainLayout);
+                this.AcceptButton = btnApply;
+                this.CancelButton = btnCancel;
+            }
+
+            private string ToTitleCase(string input)
+            {
+                if (string.IsNullOrEmpty(input)) return input;
+                return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(input.ToLower());
+            }
+
+            private void PopulateData()
+            {
+                var summary = new StringBuilder();
+                var errors = new StringBuilder();
+                var changes = new StringBuilder();
+                var validValues = new StringBuilder();
+                var nameMismatches = new StringBuilder();
+
+                // Summary
+                summary.AppendLine("═══════════════════════════════════════════════════════════════");
+                summary.AppendLine("                     IMPORT VALIDATION SUMMARY");
+                summary.AppendLine("═══════════════════════════════════════════════════════════════");
+                summary.AppendLine();
+                summary.AppendLine($"  Total rows read:     {importResult.TotalRowsRead}");
+                summary.AppendLine($"  Valid entries:       {importResult.ValidCount}");
+                summary.AppendLine($"  Errors found:        {importResult.ErrorCount}");
+                summary.AppendLine($"  Warnings:            {importResult.Warnings.Count}");
+                summary.AppendLine($"  Name mismatches:     {importResult.NameMismatches.Count}");
+                summary.AppendLine();
+
+                // Pokemon summary
+                var pokemonInImport = importResult.ValidEntries
+                    .GroupBy(e => e.PokemonID)
+                    .OrderBy(g => g.Key)
+                    .ToList();
+
+                summary.AppendLine($"  Pokemon affected:    {pokemonInImport.Count}");
+                summary.AppendLine($"  Current total moves: {currentData.Count}");
+                summary.AppendLine($"  New total moves:     {importResult.ValidCount}");
+                summary.AppendLine();
+
+                if (importResult.HasErrors)
+                {
+                    summary.AppendLine("  ⚠️  ERRORS FOUND - Please review the 'Errors & Warnings' tab");
+                    summary.AppendLine("      Some entries could not be imported due to validation errors.");
+                    summary.AppendLine("      Check the 'Valid Values Reference' tab for accepted values.");
+                    btnApply.Enabled = true; // Still allow import of valid entries
+                }
+                else
+                {
+                    summary.AppendLine("  ✓  No errors found. All entries validated successfully.");
+                }
+
+                if (importResult.Warnings.Count > 0)
+                {
+                    summary.AppendLine($"  ⚠️  {importResult.Warnings.Count} warning(s) - some data was auto-corrected.");
+                }
+
+                if (importResult.HasNameMismatches)
+                {
+                    summary.AppendLine($"  📝  {importResult.UniquePokemonNameMismatches.Count + importResult.UniqueMoveNameMismatches.Count} name mismatch(es) detected.");
+                    summary.AppendLine("      Check the 'Name Mismatches' tab to optionally rename in ROM.");
+                }
+
+                summary.AppendLine();
+                summary.AppendLine("═══════════════════════════════════════════════════════════════");
+
+                // Errors and warnings
+                if (importResult.HasErrors || importResult.Warnings.Count > 0)
+                {
+                    if (importResult.HasErrors)
+                    {
+                        errors.AppendLine("══════════════════════════════════════════════════════════════");
+                        errors.AppendLine("                          ERRORS");
+                        errors.AppendLine("══════════════════════════════════════════════════════════════");
+                        errors.AppendLine();
+                        foreach (var error in importResult.Errors)
+                        {
+                            errors.AppendLine($"  ✗ {error}");
+                        }
+                        errors.AppendLine();
+                    }
+
+                    if (importResult.Warnings.Count > 0)
+                    {
+                        errors.AppendLine("══════════════════════════════════════════════════════════════");
+                        errors.AppendLine("                         WARNINGS");
+                        errors.AppendLine("══════════════════════════════════════════════════════════════");
+                        errors.AppendLine();
+                        foreach (var warning in importResult.Warnings)
+                        {
+                            errors.AppendLine($"  ⚠ {warning}");
+                        }
+                    }
+                }
+                else
+                {
+                    errors.AppendLine("No errors or warnings found.");
+                }
+
+                // Name Mismatches tab
+                if (importResult.HasNameMismatches)
+                {
+                    nameMismatches.AppendLine("Name mismatches detected between CSV and ROM data.");
+                    nameMismatches.AppendLine("Check the items below to rename them in the ROM.");
+                    nameMismatches.AppendLine("Note: Only mismatches with DIFFERENT text (not just case) are shown.");
+
+                    // Populate Pokemon name mismatches checklist
+                    foreach (var mismatch in importResult.UniquePokemonNameMismatches)
+                    {
+                        string display = $"ID {mismatch.Id}: '{mismatch.RomName}' → '{mismatch.CsvName}'";
+                        chkPokemonRenames.Items.Add(mismatch, false);
+                    }
+
+                    // Populate Move name mismatches checklist
+                    foreach (var mismatch in importResult.UniqueMoveNameMismatches)
+                    {
+                        string display = $"ID {mismatch.Id}: '{mismatch.RomName}' → '{mismatch.CsvName}'";
+                        chkMoveRenames.Items.Add(mismatch, false);
+                    }
+                }
+                else
+                {
+                    nameMismatches.AppendLine("No name mismatches detected.");
+                    nameMismatches.AppendLine("All names in CSV match the ROM data (case-insensitive comparison).");
+                }
+
+                // Changes preview - show only what's ACTUALLY different
+                changes.AppendLine("═══════════════════════════════════════════════════════════════");
+                changes.AppendLine("                    CHANGES TO BE APPLIED");
+                changes.AppendLine("═══════════════════════════════════════════════════════════════");
+                changes.AppendLine();
+
+                int changedPokemonCount = 0;
+                int unchangedPokemonCount = 0;
+
+                // Group by Pokemon for comparison
+                foreach (var group in pokemonInImport)
+                {
+                    int pokemonId = group.Key;
+                    string pokemonName = pokemonId < pokemonNames.Length ? pokemonNames[pokemonId] : $"Pokemon #{pokemonId}";
+                    
+                    // Get current moves for this Pokemon as a set of (level, moveId) tuples
+                    var currentMoveSet = currentData
+                        .Where(e => e.PokemonID == pokemonId)
+                        .Select(e => (e.Level, e.MoveID))
+                        .OrderBy(x => x.Level).ThenBy(x => x.MoveID)
+                        .ToList();
+                    
+                    // Get new moves for this Pokemon
+                    var newMoveSet = group
+                        .Select(e => (e.Level, e.MoveID))
+                        .OrderBy(x => x.Level).ThenBy(x => x.MoveID)
+                        .ToList();
+                    
+                    // Compare if they're the same
+                    bool isSame = currentMoveSet.Count == newMoveSet.Count &&
+                                  currentMoveSet.SequenceEqual(newMoveSet);
+                    
+                    if (isSame)
+                    {
+                        unchangedPokemonCount++;
+                        continue; // Skip Pokemon with no changes
+                    }
+
+                    changedPokemonCount++;
+
+                    changes.AppendLine($"───────────────────────────────────────────────────────────────");
+                    changes.AppendLine($"  [{pokemonId:D3}] {pokemonName}");
+                    changes.AppendLine($"───────────────────────────────────────────────────────────────");
+                
+                    // Find added and removed moves
+                    var currentSet = new HashSet<(int, int)>(currentMoveSet);
+                    var newSet = new HashSet<(int, int)>(newMoveSet);
+                    
+                    var addedMoves = newMoveSet.Where(m => !currentSet.Contains(m)).ToList();
+                    var removedMoves = currentMoveSet.Where(m => !newSet.Contains(m)).ToList();
+                    
+                    if (removedMoves.Any())
+                    {
+                        changes.AppendLine($"  REMOVED ({removedMoves.Count}):");
+                        foreach (var (level, moveId) in removedMoves.OrderBy(x => x.Level))
+                        {
+                            string moveName = moveId < moveNames.Length ? moveNames[moveId] : $"Move #{moveId}";
+                            changes.AppendLine($"    - Lv.{level,3}: {moveName}");
+                        }
+                    }
+                    
+                    if (addedMoves.Any())
+                    {
+                        changes.AppendLine($"  ADDED ({addedMoves.Count}):");
+                        foreach (var (level, moveId) in addedMoves.OrderBy(x => x.Level))
+                        {
+                            string moveName = moveId < moveNames.Length ? moveNames[moveId] : $"Move #{moveId}";
+                            changes.AppendLine($"    + Lv.{level,3}: {moveName}");
+                        }
+                    }
+                    
+                    changes.AppendLine();
+                }
+
+                // Summary of changes
+                summary.AppendLine($"  Pokemon with changes: {changedPokemonCount}");
+                summary.AppendLine($"  Pokemon unchanged:    {unchangedPokemonCount}");
+
+                if (changedPokemonCount == 0)
+                {
+                    changes.AppendLine("  ✓  No changes detected - import data matches current data.");
+                    changes.AppendLine();
+                }
+
+                // Show Pokemon that will lose their learnsets (present in current but not in import)
+                var currentPokemonIds = currentData.Select(e => e.PokemonID).Distinct().ToHashSet();
+                var importPokemonIds = importResult.ValidEntries.Select(e => e.PokemonID).Distinct().ToHashSet();
+                var removedPokemon = currentPokemonIds.Except(importPokemonIds).ToList();
+
+                if (removedPokemon.Any())
+                {
+                    changes.AppendLine("═══════════════════════════════════════════════════════════════");
+                    changes.AppendLine("            POKEMON THAT WILL LOSE ALL MOVES");
+                    changes.AppendLine("═══════════════════════════════════════════════════════════════");
+                    changes.AppendLine();
+                    changes.AppendLine("  ⚠️  The following Pokemon are in current data but NOT in the import.");
+                    changes.AppendLine("      Their learnsets will be CLEARED if you proceed:");
+                    changes.AppendLine();
+                    foreach (var id in removedPokemon.OrderBy(x => x))
+                    {
+                        string name = id < pokemonNames.Length ? pokemonNames[id] : $"Pokemon #{id}";
+                        int moveCount = currentData.Count(e => e.PokemonID == id);
+                        changes.AppendLine($"    [{id:D3}] {name} - Currently has {moveCount} moves");
+                    }
+                }
+
+                // Valid Values Reference
+                validValues.AppendLine("═══════════════════════════════════════════════════════════════");
+                validValues.AppendLine("                   VALID VALUES REFERENCE");
+                validValues.AppendLine("═══════════════════════════════════════════════════════════════");
+                validValues.AppendLine();
+                validValues.AppendLine("  This tab shows all valid values that can be used in the CSV.");
+                validValues.AppendLine("  Note: All text values are CASE-INSENSITIVE.");
+                validValues.AppendLine();
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine("  COLUMN: ID (Pokemon ID)");
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine($"  Range: 0 to {pokemonNames.Length - 1}");
+                validValues.AppendLine();
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine("  COLUMN: Level");
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine("  Range: 1 to 100");
+                validValues.AppendLine();
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine("  COLUMN: Name (Pokemon Names)");
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine($"  Total: {pokemonNames.Length} Pokemon (case-insensitive)");
+                validValues.AppendLine();
+                // Show a few random examples instead of full list
+                var pokemonExamples = new[] { 1, 25, 150 }.Where(i => i < pokemonNames.Length).ToList();
+                validValues.AppendLine("  Examples:");
+                foreach (var i in pokemonExamples)
+                {
+                    validValues.AppendLine($"    {i,4}: {pokemonNames[i]}");
+                }
+                validValues.AppendLine();
+                validValues.AppendLine($"  Any Pokemon name from ROM data is valid.");
+                validValues.AppendLine();
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine("  COLUMN: Move (Move Names)");
+                validValues.AppendLine("───────────────────────────────────────────────────────────────");
+                validValues.AppendLine($"  Total: {moveNames.Length} Moves (case-insensitive)");
+                validValues.AppendLine();
+                // Show a few random examples instead of full list
+                var moveExamples = new[] { 1, 10, 100 }.Where(i => i < moveNames.Length).ToList();
+                validValues.AppendLine("  Examples:");
+                foreach (var i in moveExamples)
+                {
+                    validValues.AppendLine($"    {i,4}: {moveNames[i]}");
+                }
+                validValues.AppendLine();
+                validValues.AppendLine($"  Any move name from ROM data is valid.");
+
+                txtSummary.Text = summary.ToString();
+                txtErrors.Text = errors.ToString();
+                txtChanges.Text = changes.ToString();
+                txtValidValues.Text = validValues.ToString();
+                txtNameMismatches.Text = nameMismatches.ToString();
+
+                // Update tab colors based on content
+                if (importResult.HasErrors)
+                {
+                    txtErrors.ForeColor = Color.DarkRed;
+                }
+                else if (importResult.Warnings.Count > 0)
+                {
+                    txtErrors.ForeColor = Color.DarkOrange;
+                }
+                else
+                {
+                    txtErrors.ForeColor = Color.DarkGreen;
+                }
+            }
+
+            private void BtnApply_Click(object sender, EventArgs e)
+            {
+                if (importResult.ValidCount == 0)
+                {
+                    MessageBox.Show("No valid entries to import.", "Import Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Check if any renames are selected
+                int pokemonRenameCount = chkPokemonRenames.CheckedItems.Count;
+                int moveRenameCount = chkMoveRenames.CheckedItems.Count;
+                bool hasRenames = pokemonRenameCount > 0 || moveRenameCount > 0;
+
+                var confirmMessage = $"This will replace all current learnset data with {importResult.ValidCount} imported entries.\n\n";
+            
+                if (importResult.HasErrors)
+                {
+                    confirmMessage += $"⚠️ Warning: {importResult.ErrorCount} rows had errors and will be skipped.\n\n";
+                }
+
+                if (hasRenames)
+                {
+                    confirmMessage += $"📝 The following names will be changed in ROM:\n";
+                    if (pokemonRenameCount > 0) confirmMessage += $"   - {pokemonRenameCount} Pokemon name(s)\n";
+                    if (moveRenameCount > 0) confirmMessage += $"   - {moveRenameCount} Move name(s)\n";
+                    confirmMessage += $"   Title Case: {(chkUseTitleCase.Checked ? "Yes" : "No")}\n\n";
+                }
+
+                confirmMessage += "Are you sure you want to proceed?";
+
+                var result = MessageBox.Show(confirmMessage, "Confirm Import",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+                if (result == DialogResult.Yes)
+                {
+                    // Apply name renames if any are selected
+                    if (hasRenames)
+                    {
+                        try
+                        {
+                            ApplyNameRenames();
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show($"Error applying name renames: {ex.Message}\n\nThe import will continue without renaming.",
+                                "Rename Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
+
+                    this.DialogResult = DialogResult.OK;
+                    this.Close();
+                }
+            }
+
+            private void ApplyNameRenames()
+            {
+                bool useTitleCase = chkUseTitleCase.Checked;
+                bool pokemonNamesChanged = false;
+                bool moveNamesChanged = false;
+
+                // Apply Pokemon name renames
+                if (chkPokemonRenames.CheckedItems.Count > 0)
+                {
+                    var pokemonNameArchive = new DSPRE.ROMFiles.TextArchive(RomInfo.pokemonNamesTextNumbers[0]);
+
+                    foreach (NameMismatch mismatch in chkPokemonRenames.CheckedItems)
+                    {
+                        if (mismatch.Id >= 0 && mismatch.Id < pokemonNameArchive.messages.Count)
+                        {
+                            string newName = useTitleCase ? ToTitleCase(mismatch.CsvName) : mismatch.CsvName;
+                            pokemonNameArchive.messages[mismatch.Id] = newName;
+                            pokemonNamesChanged = true;
+                        }
+                    }
+
+                    if (pokemonNamesChanged)
+                    {
+                        pokemonNameArchive.SaveToDefaultDir(RomInfo.pokemonNamesTextNumbers[0], false);
+                        pokemonNameArchive.SaveToExpandedDir(RomInfo.pokemonNamesTextNumbers[0], false);
+                    }
+                }
+
+                // Apply Move name renames
+                if (chkMoveRenames.CheckedItems.Count > 0)
+                {
+                    var moveNameArchive = new DSPRE.ROMFiles.TextArchive(RomInfo.attackNamesTextNumber);
+
+                    foreach (NameMismatch mismatch in chkMoveRenames.CheckedItems)
+                    {
+                        if (mismatch.Id >= 0 && mismatch.Id < moveNameArchive.messages.Count)
+                        {
+                            string newName = useTitleCase ? ToTitleCase(mismatch.CsvName) : mismatch.CsvName;
+                            moveNameArchive.messages[mismatch.Id] = newName;
+                            moveNamesChanged = true;
+                        }
+                    }
+
+                    if (moveNamesChanged)
+                    {
+                        moveNameArchive.SaveToDefaultDir(RomInfo.attackNamesTextNumber, false);
+                        moveNameArchive.SaveToExpandedDir(RomInfo.attackNamesTextNumber, false);
+                    }
+                }
+
+                if (pokemonNamesChanged || moveNamesChanged)
+                {
+                    MessageBox.Show(
+                        $"Name changes applied:\n" +
+                        $"- Pokemon names: {chkPokemonRenames.CheckedItems.Count}\n" +
+                        $"- Move names: {chkMoveRenames.CheckedItems.Count}",
+                        "Names Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        }
+        #endregion
+
+        #endregion
+    }

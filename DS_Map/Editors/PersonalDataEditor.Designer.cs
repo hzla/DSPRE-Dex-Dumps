@@ -167,6 +167,10 @@
             ((System.ComponentModel.ISupportInitialize)(this.catchRateNumericUpDown)).BeginInit();
             this.groupBox4.SuspendLayout();
             this.tableLayoutPanel10.SuspendLayout();
+            this.bottomButtonsPanel = new System.Windows.Forms.FlowLayoutPanel();
+            this.exportCsvButton = new System.Windows.Forms.Button();
+            this.importCsvButton = new System.Windows.Forms.Button();
+            this.bottomButtonsPanel.SuspendLayout();
             this.SuspendLayout();
             // 
             // tableLayoutPanel1
@@ -182,12 +186,14 @@
             this.tableLayoutPanel1.Controls.Add(this.monNumberNumericUpDown, 2, 0);
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel2, 0, 1);
             this.tableLayoutPanel1.Controls.Add(this.pokemonNameInputComboBox, 1, 0);
+            this.tableLayoutPanel1.Controls.Add(this.bottomButtonsPanel, 0, 2);
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel1.Location = new System.Drawing.Point(5, 5);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
-            this.tableLayoutPanel1.RowCount = 2;
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 9.274874F));
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 90.72513F));
+            this.tableLayoutPanel1.RowCount = 3;
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 53F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 35F));
             this.tableLayoutPanel1.Size = new System.Drawing.Size(1076, 581);
             this.tableLayoutPanel1.TabIndex = 0;
             // 
@@ -1465,6 +1471,37 @@
             this.hatchResultComboBox.TabIndex = 20;
             this.hatchResultComboBox.SelectedIndexChanged += new System.EventHandler(this.hatchResultComboBox_SelectedIndexChanged);
             // 
+            // bottomButtonsPanel
+            // 
+            this.tableLayoutPanel1.SetColumnSpan(this.bottomButtonsPanel, 5);
+            this.bottomButtonsPanel.Controls.Add(this.exportCsvButton);
+            this.bottomButtonsPanel.Controls.Add(this.importCsvButton);
+            this.bottomButtonsPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.bottomButtonsPanel.Location = new System.Drawing.Point(3, 549);
+            this.bottomButtonsPanel.Name = "bottomButtonsPanel";
+            this.bottomButtonsPanel.Size = new System.Drawing.Size(1070, 29);
+            this.bottomButtonsPanel.TabIndex = 32;
+            // 
+            // exportCsvButton
+            // 
+            this.exportCsvButton.Location = new System.Drawing.Point(3, 3);
+            this.exportCsvButton.Name = "exportCsvButton";
+            this.exportCsvButton.Size = new System.Drawing.Size(90, 23);
+            this.exportCsvButton.TabIndex = 0;
+            this.exportCsvButton.Text = "Export CSV...";
+            this.exportCsvButton.UseVisualStyleBackColor = true;
+            this.exportCsvButton.Click += new System.EventHandler(this.exportCsvButton_Click);
+            // 
+            // importCsvButton
+            // 
+            this.importCsvButton.Location = new System.Drawing.Point(99, 3);
+            this.importCsvButton.Name = "importCsvButton";
+            this.importCsvButton.Size = new System.Drawing.Size(90, 23);
+            this.importCsvButton.TabIndex = 1;
+            this.importCsvButton.Text = "Import CSV...";
+            this.importCsvButton.UseVisualStyleBackColor = true;
+            this.importCsvButton.Click += new System.EventHandler(this.importCsvButton_Click);
+            // 
             // PersonalDataEditor
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -1533,6 +1570,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.catchRateNumericUpDown)).EndInit();
             this.groupBox4.ResumeLayout(false);
             this.tableLayoutPanel10.ResumeLayout(false);
+            this.bottomButtonsPanel.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
@@ -1635,5 +1673,8 @@
         public System.Windows.Forms.NumericUpDown monNumberNumericUpDown;
         private System.Windows.Forms.Label hatchResultLabel;
         private InputComboBox hatchResultComboBox;
+        private System.Windows.Forms.FlowLayoutPanel bottomButtonsPanel;
+        private System.Windows.Forms.Button exportCsvButton;
+        private System.Windows.Forms.Button importCsvButton;
     }
 }
