@@ -1523,37 +1523,87 @@ namespace DSPRE.Editors
                     errors.AppendLine("No errors or warnings found.");
                 }
 
-                // Changes preview - show what will be modified
+                // Changes preview - show only what's ACTUALLY different
                 changes.AppendLine("═══════════════════════════════════════════════════════════════");
                 changes.AppendLine("                    CHANGES TO BE APPLIED");
                 changes.AppendLine("═══════════════════════════════════════════════════════════════");
                 changes.AppendLine();
-                changes.AppendLine("This import will REPLACE ALL current learnset data with the imported data.");
-                changes.AppendLine();
 
-                // Group by Pokemon for readable output
+                int changedPokemonCount = 0;
+                int unchangedPokemonCount = 0;
+
+                // Group by Pokemon for comparison
                 foreach (var group in pokemonInImport)
                 {
                     int pokemonId = group.Key;
                     string pokemonName = pokemonId < pokemonNames.Length ? pokemonNames[pokemonId] : $"Pokemon #{pokemonId}";
-                    var currentMoves = currentData.Where(e => e.PokemonID == pokemonId).ToList();
-                    var newMoves = group.ToList();
+                    
+                    // Get current moves for this Pokemon as a set of (level, moveId) tuples
+                    var currentMoveSet = currentData
+                        .Where(e => e.PokemonID == pokemonId)
+                        .Select(e => (e.Level, e.MoveID))
+                        .OrderBy(x => x.Level).ThenBy(x => x.MoveID)
+                        .ToList();
+                    
+                    // Get new moves for this Pokemon
+                    var newMoveSet = group
+                        .Select(e => (e.Level, e.MoveID))
+                        .OrderBy(x => x.Level).ThenBy(x => x.MoveID)
+                        .ToList();
+                    
+                    // Compare if they're the same
+                    bool isSame = currentMoveSet.Count == newMoveSet.Count &&
+                                  currentMoveSet.SequenceEqual(newMoveSet);
+                    
+                    if (isSame)
+                    {
+                        unchangedPokemonCount++;
+                        continue; // Skip Pokemon with no changes
+                    }
+
+                    changedPokemonCount++;
 
                     changes.AppendLine($"───────────────────────────────────────────────────────────────");
                     changes.AppendLine($"  [{pokemonId:D3}] {pokemonName}");
                     changes.AppendLine($"───────────────────────────────────────────────────────────────");
                 
-                    // Show current vs new
-                    changes.AppendLine($"  Current: {currentMoves.Count} moves");
-                    changes.AppendLine($"  After:   {newMoves.Count} moves");
-                    changes.AppendLine();
-
-                    // List new moves
-                    foreach (var move in newMoves.OrderBy(m => m.Level))
+                    // Find added and removed moves
+                    var currentSet = new HashSet<(int, int)>(currentMoveSet);
+                    var newSet = new HashSet<(int, int)>(newMoveSet);
+                    
+                    var addedMoves = newMoveSet.Where(m => !currentSet.Contains(m)).ToList();
+                    var removedMoves = currentMoveSet.Where(m => !newSet.Contains(m)).ToList();
+                    
+                    if (removedMoves.Any())
                     {
-                        string moveName = move.MoveID < moveNames.Length ? moveNames[move.MoveID] : $"Move #{move.MoveID}";
-                        changes.AppendLine($"    Lv.{move.Level,3}: {moveName}");
+                        changes.AppendLine($"  REMOVED ({removedMoves.Count}):");
+                        foreach (var (level, moveId) in removedMoves.OrderBy(x => x.Level))
+                        {
+                            string moveName = moveId < moveNames.Length ? moveNames[moveId] : $"Move #{moveId}";
+                            changes.AppendLine($"    - Lv.{level,3}: {moveName}");
+                        }
                     }
+                    
+                    if (addedMoves.Any())
+                    {
+                        changes.AppendLine($"  ADDED ({addedMoves.Count}):");
+                        foreach (var (level, moveId) in addedMoves.OrderBy(x => x.Level))
+                        {
+                            string moveName = moveId < moveNames.Length ? moveNames[moveId] : $"Move #{moveId}";
+                            changes.AppendLine($"    + Lv.{level,3}: {moveName}");
+                        }
+                    }
+                    
+                    changes.AppendLine();
+                }
+
+                // Summary of changes
+                summary.AppendLine($"  Pokemon with changes: {changedPokemonCount}");
+                summary.AppendLine($"  Pokemon unchanged:    {unchangedPokemonCount}");
+
+                if (changedPokemonCount == 0)
+                {
+                    changes.AppendLine("  ✓  No changes detected - import data matches current data.");
                     changes.AppendLine();
                 }
 

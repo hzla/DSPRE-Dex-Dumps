@@ -15,6 +15,12 @@ namespace DSPRE {
 
         private readonly string[] fileNames;
         private readonly string[] moveDescriptions;
+        private readonly string[] typeNames;
+
+        // Lookup dictionaries for import validation (built from ROM data)
+        private Dictionary<string, int> typeNameToId;
+        private Dictionary<string, MoveData.MoveSplit> splitNameToEnum;
+        private Dictionary<string, ushort> rangeNameToValue;
 
         private int currentLoadedId = 0;
         private MoveData currentLoadedFile = null;
@@ -23,10 +29,14 @@ namespace DSPRE {
         private static readonly string formName = "Move Data Editor";
 
         public MoveDataEditor(string[] fileNames, string[] moveDescriptions) {
-            this.fileNames = fileNames.ToArray();
-            this.moveDescriptions = moveDescriptions;
+        this.fileNames = fileNames.ToArray();
+        this.moveDescriptions = moveDescriptions;
+        this.typeNames = RomInfo.GetTypeNames();
 
-            InitializeComponent();
+        // Build lookup dictionaries for import validation
+        BuildLookupDictionaries();
+
+        InitializeComponent();
 
             disableHandlers = true;
 
@@ -62,11 +72,28 @@ namespace DSPRE {
 
             contestConditionComboBox.Items.AddRange(Enum.GetNames(typeof(MoveData.ContestCondition)));
 
-            moveTypeComboBox.Items.AddRange(RomInfo.GetTypeNames());
+            moveTypeComboBox.Items.AddRange(typeNames);
 
             disableHandlers = false;
 
             moveNameInputComboBox.SelectedIndex = 1;
+
+            // Add Import/Export menu strip
+            var menuStrip = new MenuStrip();
+            var fileMenu = new ToolStripMenuItem("File");
+            
+            var exportMenuItem = new ToolStripMenuItem("Export All to CSV...");
+            exportMenuItem.Click += (s, args) => ExportToCSV();
+            
+            var importMenuItem = new ToolStripMenuItem("Import from CSV...");
+            importMenuItem.Click += (s, args) => ImportFromCSV();
+
+            fileMenu.DropDownItems.Add(exportMenuItem);
+            fileMenu.DropDownItems.Add(importMenuItem);
+            menuStrip.Items.Add(fileMenu);
+            
+            this.MainMenuStrip = menuStrip;
+            this.Controls.Add(menuStrip);
 
             // Focus the move name input when the form is shown
             this.Shown += MoveDataEditor_Shown;
@@ -303,12 +330,641 @@ namespace DSPRE {
         }
 
         private void sideEffectUpDown_ValueChanged(object sender, EventArgs e) {
-            if (disableHandlers) {
-                return;
-            }
-            currentLoadedFile.sideEffectProbability = (byte)sideEffectProbabilityUpDown.Value;
+                    if (disableHandlers) {
+                        return;
+                    }
+                    currentLoadedFile.sideEffectProbability = (byte)sideEffectProbabilityUpDown.Value;
 
-            setDirty(true);
+                    setDirty(true);
+                }
+
+                #region Import/Export Methods
+                private void BuildLookupDictionaries() {
+                    // Build type name -> ID lookup (case-insensitive)
+                    typeNameToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    string[] types = RomInfo.GetTypeNames();
+                    for (int i = 0; i < types.Length; i++) {
+                        if (!string.IsNullOrEmpty(types[i]) && !typeNameToId.ContainsKey(types[i])) {
+                            typeNameToId[types[i]] = i;
+                        }
+                    }
+
+                    // Build split name -> enum lookup (case-insensitive)
+                    splitNameToEnum = new Dictionary<string, MoveData.MoveSplit>(StringComparer.OrdinalIgnoreCase);
+                    foreach (MoveData.MoveSplit split in Enum.GetValues(typeof(MoveData.MoveSplit))) {
+                        splitNameToEnum[split.ToString()] = split;
+                    }
+
+                    // Build range name -> value lookup (case-insensitive)
+                    rangeNameToValue = new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var range in MoveData.AttackRangeDescriptions) {
+                        rangeNameToValue[range.name] = range.value;
+                    }
+                }
+
+                private void ExportToCSV() {
+                    using (var saveDialog = new SaveFileDialog()) {
+                        saveDialog.Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*";
+                        saveDialog.DefaultExt = "csv";
+                        saveDialog.FileName = "MoveData.csv";
+                        saveDialog.Title = "Export Move Data to CSV";
+
+                        if (saveDialog.ShowDialog() == DialogResult.OK) {
+                            try {
+                                using (var writer = new StreamWriter(saveDialog.FileName)) {
+                                    // Write header - matching DocTool format but simplified for import
+                                    writer.WriteLine("Move ID,Move Name,Move Type,Move Split,Power,Accuracy,Priority,Side Effect Probability,PP,Range");
+
+                                    for (int i = 0; i < fileNames.Length; i++) {
+                                        MoveData move = new MoveData(i);
+                                
+                                        string typeString = (int)move.movetype < typeNames.Length 
+                                            ? typeNames[(int)move.movetype] 
+                                            : $"UnknownType_{(int)move.movetype}";
+                                
+                                        string rangeString = MoveData.GetAttackRangeName(move.target);
+
+                                        writer.WriteLine($"{i},{fileNames[i]},{typeString},{move.split}," +
+                                            $"{move.damage},{move.accuracy},{move.priority}," +
+                                            $"{move.sideEffectProbability},{move.pp},{rangeString}");
+                                    }
+                                }
+
+                                MessageBox.Show($"Move data exported successfully to:\n{saveDialog.FileName}",
+                                    "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            } catch (Exception ex) {
+                                MessageBox.Show($"Error exporting data: {ex.Message}", "Export Error",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            }
+                        }
+                    }
+                }
+
+                private void ImportFromCSV() {
+                    using (var openDialog = new OpenFileDialog()) {
+                        openDialog.Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*";
+                        openDialog.DefaultExt = "csv";
+                        openDialog.Title = "Import Move Data from CSV";
+
+                        if (openDialog.ShowDialog() == DialogResult.OK) {
+                            var importResult = ValidateAndParseCSV(openDialog.FileName);
+
+                            // Show the import preview dialog
+                            using (var previewForm = new MoveDataImportPreviewForm(importResult, fileNames, typeNames)) {
+                                if (previewForm.ShowDialog() == DialogResult.OK) {
+                                    // Apply the changes
+                                    ApplyImportedData(importResult.ValidEntries);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                private MoveDataImportResult ValidateAndParseCSV(string filePath) {
+                    var result = new MoveDataImportResult();
+
+                    try {
+                        var lines = File.ReadAllLines(filePath);
+
+                        if (lines.Length == 0) {
+                            result.Errors.Add(new MoveImportError(0, "File is empty."));
+                            return result;
+                        }
+
+                        // Validate header
+                        var header = lines[0].Split(',');
+                        if (header.Length < 10 ||
+                            !header[0].Trim().Equals("Move ID", StringComparison.OrdinalIgnoreCase) ||
+                            !header[1].Trim().Equals("Move Name", StringComparison.OrdinalIgnoreCase)) {
+                            result.Errors.Add(new MoveImportError(1, $"Invalid header. Expected: 'Move ID,Move Name,Move Type,Move Split,Power,Accuracy,Priority,Side Effect Probability,PP,Range'. Got: '{lines[0]}'"));
+                            return result;
+                        }
+
+                        result.TotalRowsRead = lines.Length - 1;
+
+                        // Parse each data row
+                        for (int i = 1; i < lines.Length; i++) {
+                            int lineNumber = i + 1;
+                            var line = lines[i];
+
+                            if (string.IsNullOrWhiteSpace(line)) {
+                                continue;
+                            }
+
+                            var parts = ParseCSVLine(line);
+
+                            if (parts.Length < 10) {
+                                result.Errors.Add(new MoveImportError(lineNumber, $"Invalid number of columns. Expected 10, got {parts.Length}. Line: '{line}'"));
+                                continue;
+                            }
+
+                            var rowResult = ValidateRow(lineNumber, parts);
+
+                            result.Warnings.AddRange(rowResult.Warnings);
+
+                            if (rowResult.IsValid) {
+                                result.ValidEntries.Add(rowResult.Entry);
+                            } else {
+                                result.Errors.AddRange(rowResult.Errors);
+                            }
+                        }
+                    } catch (Exception ex) {
+                        result.Errors.Add(new MoveImportError(0, $"Failed to read file: {ex.Message}"));
+                    }
+
+                    return result;
+                }
+
+                private string[] ParseCSVLine(string line) {
+                    var result = new List<string>();
+                    var current = new StringBuilder();
+                    bool inQuotes = false;
+
+                    foreach (char c in line) {
+                        if (c == '"') {
+                            inQuotes = !inQuotes;
+                        } else if (c == ',' && !inQuotes) {
+                            result.Add(current.ToString().Trim());
+                            current.Clear();
+                        } else {
+                            current.Append(c);
+                        }
+                    }
+                    result.Add(current.ToString().Trim());
+
+                    return result.ToArray();
+                }
+
+                private MoveRowValidationResult ValidateRow(int lineNumber, string[] parts) {
+                    var result = new MoveRowValidationResult { LineNumber = lineNumber };
+                    var entry = new MoveDataImportEntry();
+
+                    // Validate Move ID (column 0)
+                    if (!int.TryParse(parts[0].Trim(), out int moveId)) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Invalid Move ID '{parts[0]}'. Must be a number."));
+                    } else if (moveId < 0 || moveId >= fileNames.Length) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Move ID {moveId} is out of range. Valid range: 0-{fileNames.Length - 1}"));
+                    } else {
+                        entry.MoveID = moveId;
+                    }
+
+                    // Validate Move Name (column 1) - cross-reference with ID
+                    string moveName = parts[1].Trim();
+                    if (entry.MoveID >= 0 && entry.MoveID < fileNames.Length) {
+                        string expectedName = fileNames[entry.MoveID];
+                        if (!moveName.Equals(expectedName, StringComparison.OrdinalIgnoreCase)) {
+                            result.Warnings.Add(new MoveImportWarning(lineNumber,
+                                $"Move name '{moveName}' doesn't match ID {entry.MoveID} (expected '{expectedName}'). Using ID."));
+                        }
+                        entry.MoveName = expectedName;
+                    }
+
+                    // Validate Type (column 2)
+                    string typeStr = parts[2].Trim();
+                    if (typeNameToId.TryGetValue(typeStr, out int typeId)) {
+                        entry.MoveType = (PokemonType)typeId;
+                    } else {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Unknown type '{typeStr}'. Valid types: {string.Join(", ", typeNames.Where(t => !string.IsNullOrEmpty(t)))}"));
+                    }
+
+                    // Validate Split (column 3)
+                    string splitStr = parts[3].Trim();
+                    if (splitNameToEnum.TryGetValue(splitStr, out MoveData.MoveSplit split)) {
+                        entry.Split = split;
+                    } else {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Unknown split '{splitStr}'. Valid values: PHYSICAL, SPECIAL, STATUS"));
+                    }
+
+                    // Validate Power (column 4)
+                    if (!byte.TryParse(parts[4].Trim(), out byte power)) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Invalid power '{parts[4]}'. Must be 0-255."));
+                    } else {
+                        entry.Power = power;
+                    }
+
+                    // Validate Accuracy (column 5)
+                    if (!byte.TryParse(parts[5].Trim(), out byte accuracy)) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Invalid accuracy '{parts[5]}'. Must be 0-255."));
+                    } else {
+                        entry.Accuracy = accuracy;
+                    }
+
+                    // Validate Priority (column 6)
+                    if (!sbyte.TryParse(parts[6].Trim(), out sbyte priority)) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Invalid priority '{parts[6]}'. Must be -128 to 127."));
+                    } else {
+                        entry.Priority = priority;
+                    }
+
+                    // Validate Side Effect Probability (column 7)
+                    if (!byte.TryParse(parts[7].Trim(), out byte sideEffect)) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Invalid side effect probability '{parts[7]}'. Must be 0-255."));
+                    } else {
+                        entry.SideEffectProbability = sideEffect;
+                    }
+
+                    // Validate PP (column 8)
+                    if (!byte.TryParse(parts[8].Trim(), out byte pp)) {
+                        result.Errors.Add(new MoveImportError(lineNumber, $"Invalid PP '{parts[8]}'. Must be 0-255."));
+                    } else {
+                        entry.PP = pp;
+                    }
+
+                    // Validate Range (column 9)
+                    string rangeStr = parts[9].Trim();
+                    if (rangeNameToValue.TryGetValue(rangeStr, out ushort rangeValue)) {
+                        entry.Range = rangeValue;
+                    } else {
+                        result.Errors.Add(new MoveImportError(lineNumber, 
+                            $"Unknown range '{rangeStr}'. Valid values: {string.Join(", ", rangeNameToValue.Keys)}"));
+                    }
+
+                    result.Entry = entry;
+                    result.IsValid = result.Errors.Count == 0;
+                    return result;
+                }
+
+                private void ApplyImportedData(List<MoveDataImportEntry> importedEntries) {
+                    int savedCount = 0;
+
+                    foreach (var entry in importedEntries) {
+                        try {
+                            // Load the existing move data to preserve fields not in the CSV
+                            MoveData move = new MoveData(entry.MoveID);
+
+                            // Update only the fields from the CSV
+                            move.movetype = entry.MoveType;
+                            move.split = entry.Split;
+                            move.damage = entry.Power;
+                            move.accuracy = entry.Accuracy;
+                            move.priority = entry.Priority;
+                            move.sideEffectProbability = entry.SideEffectProbability;
+                            move.pp = entry.PP;
+                            move.target = entry.Range;
+
+                            // Save to file
+                            move.SaveToFileDefaultDir(entry.MoveID, showSuccessMessage: false);
+                            savedCount++;
+                        } catch (Exception ex) {
+                            AppLogger.Error($"Failed to save move {entry.MoveID}: {ex.Message}");
+                        }
+                    }
+
+                    // Reload the current move if it was modified
+                    if (importedEntries.Any(e => e.MoveID == currentLoadedId)) {
+                        ChangeLoadedFile(currentLoadedId);
+                    }
+
+                    MessageBox.Show($"Successfully imported and saved {savedCount} move(s).",
+                        "Import Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                #endregion
+            }
+
+            #region Move Import Support Classes
+            public class MoveImportError {
+                public int LineNumber { get; }
+                public string Message { get; }
+
+                public MoveImportError(int lineNumber, string message) {
+                    LineNumber = lineNumber;
+                    Message = message;
+                }
+
+                public override string ToString() => LineNumber > 0 ? $"Line {LineNumber}: {Message}" : Message;
+            }
+
+            public class MoveImportWarning {
+                public int LineNumber { get; }
+                public string Message { get; }
+
+                public MoveImportWarning(int lineNumber, string message) {
+                    LineNumber = lineNumber;
+                    Message = message;
+                }
+
+                public override string ToString() => LineNumber > 0 ? $"Line {LineNumber}: {Message}" : Message;
+            }
+
+            public class MoveDataImportEntry {
+                public int MoveID { get; set; }
+                public string MoveName { get; set; }
+                public PokemonType MoveType { get; set; }
+                public MoveData.MoveSplit Split { get; set; }
+                public byte Power { get; set; }
+                public byte Accuracy { get; set; }
+                public sbyte Priority { get; set; }
+                public byte SideEffectProbability { get; set; }
+                public byte PP { get; set; }
+                public ushort Range { get; set; }
+            }
+
+            public class MoveRowValidationResult {
+                public int LineNumber { get; set; }
+                public MoveDataImportEntry Entry { get; set; }
+                public List<MoveImportError> Errors { get; set; } = new List<MoveImportError>();
+                public List<MoveImportWarning> Warnings { get; set; } = new List<MoveImportWarning>();
+                public bool IsValid { get; set; }
+            }
+
+            public class MoveDataImportResult {
+                public List<MoveDataImportEntry> ValidEntries { get; set; } = new List<MoveDataImportEntry>();
+                public List<MoveImportError> Errors { get; set; } = new List<MoveImportError>();
+                public List<MoveImportWarning> Warnings { get; set; } = new List<MoveImportWarning>();
+                public int TotalRowsRead { get; set; }
+
+                public bool HasErrors => Errors.Count > 0;
+                public bool HasWarnings => Warnings.Count > 0;
+                public int ValidCount => ValidEntries.Count;
+                public int ErrorCount => Errors.Count;
+            }
+
+            public class MoveDataImportPreviewForm : Form {
+                private TabControl tabControl;
+                private TextBox txtSummary;
+                private TextBox txtErrors;
+                private TextBox txtChanges;
+                private Button btnApply;
+                private Button btnCancel;
+                private MoveDataImportResult importResult;
+                private string[] moveNames;
+                private string[] typeNames;
+
+                public MoveDataImportPreviewForm(MoveDataImportResult result, string[] moveNames, string[] typeNames) {
+                    this.importResult = result;
+                    this.moveNames = moveNames;
+                    this.typeNames = typeNames;
+                    InitializeComponent();
+                    PopulateData();
+                }
+
+                private void InitializeComponent() {
+                    this.Size = new System.Drawing.Size(800, 600);
+                    this.Text = "Move Data Import Preview";
+                    this.FormBorderStyle = FormBorderStyle.Sizable;
+                    this.StartPosition = FormStartPosition.CenterParent;
+                    this.MinimumSize = new System.Drawing.Size(600, 400);
+
+                    var mainLayout = new TableLayoutPanel {
+                        Dock = DockStyle.Fill,
+                        RowCount = 2,
+                        ColumnCount = 1,
+                        Padding = new Padding(10)
+                    };
+                    mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                    mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+
+                    tabControl = new TabControl { Dock = DockStyle.Fill };
+
+                    var summaryTab = new TabPage("Summary");
+                    txtSummary = new TextBox {
+                        Dock = DockStyle.Fill,
+                        Multiline = true,
+                        ReadOnly = true,
+                        ScrollBars = ScrollBars.Both,
+                        Font = new System.Drawing.Font("Consolas", 10f),
+                        WordWrap = false
+                    };
+                    summaryTab.Controls.Add(txtSummary);
+
+                    var errorsTab = new TabPage("Errors & Warnings");
+                    txtErrors = new TextBox {
+                        Dock = DockStyle.Fill,
+                        Multiline = true,
+                        ReadOnly = true,
+                        ScrollBars = ScrollBars.Both,
+                        Font = new System.Drawing.Font("Consolas", 10f),
+                        WordWrap = false,
+                        ForeColor = System.Drawing.Color.DarkRed
+                    };
+                    errorsTab.Controls.Add(txtErrors);
+
+                    var changesTab = new TabPage("Changes Preview");
+                    txtChanges = new TextBox {
+                        Dock = DockStyle.Fill,
+                        Multiline = true,
+                        ReadOnly = true,
+                        ScrollBars = ScrollBars.Both,
+                        Font = new System.Drawing.Font("Consolas", 9f),
+                        WordWrap = false
+                    };
+                    changesTab.Controls.Add(txtChanges);
+
+                    tabControl.TabPages.AddRange(new TabPage[] { summaryTab, errorsTab, changesTab });
+
+                    var buttonPanel = new FlowLayoutPanel {
+                        Dock = DockStyle.Fill,
+                        FlowDirection = FlowDirection.RightToLeft,
+                        Padding = new Padding(0, 10, 0, 0)
+                    };
+
+                    btnCancel = new Button {
+                        Text = "Cancel",
+                        DialogResult = DialogResult.Cancel,
+                        Size = new System.Drawing.Size(100, 30)
+                    };
+
+                    btnApply = new Button {
+                        Text = "Apply Changes",
+                        Size = new System.Drawing.Size(120, 30)
+                    };
+                    btnApply.Click += BtnApply_Click;
+
+                    buttonPanel.Controls.AddRange(new Control[] { btnCancel, btnApply });
+
+                    mainLayout.Controls.Add(tabControl, 0, 0);
+                    mainLayout.Controls.Add(buttonPanel, 0, 1);
+
+                    this.Controls.Add(mainLayout);
+                    this.AcceptButton = btnApply;
+                    this.CancelButton = btnCancel;
+                }
+
+                private void PopulateData() {
+                    var summary = new StringBuilder();
+                    var errors = new StringBuilder();
+                    var changes = new StringBuilder();
+
+                    // Load current move data from ROM for comparison
+                    var changedMoves = new List<(MoveDataImportEntry imported, MoveData current)>();
+                    var unchangedCount = 0;
+
+                    foreach (var entry in importResult.ValidEntries) {
+                        try {
+                            MoveData currentMove = new MoveData(entry.MoveID);
+                            
+                            // Compare all fields
+                            bool hasChanges = 
+                                currentMove.movetype != entry.MoveType ||
+                                currentMove.split != entry.Split ||
+                                currentMove.damage != entry.Power ||
+                                currentMove.accuracy != entry.Accuracy ||
+                                currentMove.priority != entry.Priority ||
+                                currentMove.sideEffectProbability != entry.SideEffectProbability ||
+                                currentMove.pp != entry.PP ||
+                                currentMove.target != entry.Range;
+                            
+                            if (hasChanges) {
+                                changedMoves.Add((entry, currentMove));
+                            } else {
+                                unchangedCount++;
+                            }
+                        } catch {
+                            // If we can't load current data, assume it's changed
+                            changedMoves.Add((entry, null));
+                        }
+                    }
+
+                    // Summary
+                    summary.AppendLine("═══════════════════════════════════════════════════════════════");
+                    summary.AppendLine("                   MOVE DATA IMPORT VALIDATION SUMMARY");
+                    summary.AppendLine("═══════════════════════════════════════════════════════════════");
+                    summary.AppendLine();
+                    summary.AppendLine($"  Total rows read:     {importResult.TotalRowsRead}");
+                    summary.AppendLine($"  Valid entries:       {importResult.ValidCount}");
+                    summary.AppendLine($"  Moves with changes:  {changedMoves.Count}");
+                    summary.AppendLine($"  Moves unchanged:     {unchangedCount}");
+                    summary.AppendLine($"  Errors found:        {importResult.ErrorCount}");
+                    summary.AppendLine($"  Warnings:            {importResult.Warnings.Count}");
+                    summary.AppendLine();
+
+                    if (importResult.HasErrors) {
+                        summary.AppendLine("  ⚠️  ERRORS FOUND - Please review the 'Errors & Warnings' tab");
+                        summary.AppendLine("      Some entries could not be imported due to validation errors.");
+                    } else if (changedMoves.Count == 0) {
+                        summary.AppendLine("  ✓  No changes detected - import data matches current ROM data.");
+                    } else {
+                        summary.AppendLine("  ✓  All entries validated successfully.");
+                    }
+
+                    if (importResult.Warnings.Count > 0) {
+                        summary.AppendLine($"  ⚠️  {importResult.Warnings.Count} warning(s) - some data was auto-corrected.");
+                    }
+
+                    summary.AppendLine();
+                    summary.AppendLine("═══════════════════════════════════════════════════════════════");
+
+                    // Errors and warnings
+                    if (importResult.HasErrors || importResult.Warnings.Count > 0) {
+                        if (importResult.HasErrors) {
+                            errors.AppendLine("══════════════════════════════════════════════════════════════");
+                            errors.AppendLine("                          ERRORS");
+                            errors.AppendLine("══════════════════════════════════════════════════════════════");
+                            errors.AppendLine();
+                            foreach (var error in importResult.Errors) {
+                                errors.AppendLine($"  ✗ {error}");
+                            }
+                            errors.AppendLine();
+                        }
+
+                        if (importResult.Warnings.Count > 0) {
+                            errors.AppendLine("══════════════════════════════════════════════════════════════");
+                            errors.AppendLine("                         WARNINGS");
+                            errors.AppendLine("══════════════════════════════════════════════════════════════");
+                            errors.AppendLine();
+                            foreach (var warning in importResult.Warnings) {
+                                errors.AppendLine($"  ⚠ {warning}");
+                            }
+                        }
+                    } else {
+                        errors.AppendLine("No errors or warnings found.");
+                    }
+
+                    // Changes preview - only show actual changes
+                    changes.AppendLine("═══════════════════════════════════════════════════════════════");
+                    changes.AppendLine("                    MOVES TO BE MODIFIED");
+                    changes.AppendLine("═══════════════════════════════════════════════════════════════");
+                    changes.AppendLine();
+
+                    if (changedMoves.Count == 0) {
+                        changes.AppendLine("  ✓  No changes detected - import data matches current ROM data.");
+                    } else {
+                        changes.AppendLine($"The following {changedMoves.Count} move(s) will be updated:");
+                        changes.AppendLine();
+
+                        foreach (var (entry, current) in changedMoves.OrderBy(x => x.imported.MoveID)) {
+                            string typeName = (int)entry.MoveType < typeNames.Length ? typeNames[(int)entry.MoveType] : "???";
+                            string rangeName = MoveData.GetAttackRangeName(entry.Range);
+                            
+                            changes.AppendLine($"───────────────────────────────────────────────────────────────");
+                            changes.AppendLine($"  [{entry.MoveID:D3}] {entry.MoveName}");
+                            changes.AppendLine($"───────────────────────────────────────────────────────────────");
+
+                            if (current != null) {
+                                // Show field-by-field changes
+                                if (current.movetype != entry.MoveType) {
+                                    string oldType = (int)current.movetype < typeNames.Length ? typeNames[(int)current.movetype] : "???";
+                                    changes.AppendLine($"    Type:     {oldType} → {typeName}");
+                                }
+                                if (current.split != entry.Split) {
+                                    changes.AppendLine($"    Split:    {current.split} → {entry.Split}");
+                                }
+                                if (current.damage != entry.Power) {
+                                    changes.AppendLine($"    Power:    {current.damage} → {entry.Power}");
+                                }
+                                if (current.accuracy != entry.Accuracy) {
+                                    changes.AppendLine($"    Accuracy: {current.accuracy} → {entry.Accuracy}");
+                                }
+                                if (current.priority != entry.Priority) {
+                                    changes.AppendLine($"    Priority: {current.priority} → {entry.Priority}");
+                                }
+                                if (current.sideEffectProbability != entry.SideEffectProbability) {
+                                    changes.AppendLine($"    Effect %: {current.sideEffectProbability} → {entry.SideEffectProbability}");
+                                }
+                                if (current.pp != entry.PP) {
+                                    changes.AppendLine($"    PP:       {current.pp} → {entry.PP}");
+                                }
+                                if (current.target != entry.Range) {
+                                    string oldRange = MoveData.GetAttackRangeName(current.target);
+                                    changes.AppendLine($"    Range:    {oldRange} → {rangeName}");
+                                }
+                            } else {
+                                // No current data available, show all new values
+                                changes.AppendLine($"    Type: {typeName}, Split: {entry.Split}, Power: {entry.Power}");
+                                changes.AppendLine($"    Accuracy: {entry.Accuracy}, Priority: {entry.Priority}, PP: {entry.PP}");
+                                changes.AppendLine($"    Effect %: {entry.SideEffectProbability}, Range: {rangeName}");
+                            }
+                            changes.AppendLine();
+                        }
+                    }
+
+                    txtSummary.Text = summary.ToString();
+                    txtErrors.Text = errors.ToString();
+                    txtChanges.Text = changes.ToString();
+
+                    // Update tab colors based on content
+                    if (importResult.HasErrors) {
+                        txtErrors.ForeColor = System.Drawing.Color.DarkRed;
+                    } else if (importResult.Warnings.Count > 0) {
+                        txtErrors.ForeColor = System.Drawing.Color.DarkOrange;
+                    } else {
+                        txtErrors.ForeColor = System.Drawing.Color.DarkGreen;
+                    }
+                }
+
+                private void BtnApply_Click(object sender, EventArgs e) {
+                    if (importResult.ValidCount == 0) {
+                        MessageBox.Show("No valid entries to import.", "Import Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var confirmMessage = $"This will modify {importResult.ValidCount} move(s) in the ROM.\n\n";
+
+                    if (importResult.HasErrors) {
+                        confirmMessage += $"⚠️ Warning: {importResult.ErrorCount} rows had errors and will be skipped.\n\n";
+                    }
+
+                    confirmMessage += "Are you sure you want to proceed?";
+
+                    var result = MessageBox.Show(confirmMessage, "Confirm Import",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes) {
+                        this.DialogResult = DialogResult.OK;
+                        this.Close();
+                    }
+                }
+            }
+            #endregion
         }
-    }
-}
