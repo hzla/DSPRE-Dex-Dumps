@@ -1,7 +1,7 @@
 # DSPRE - DS Pokémon ROM Editor Reloaded
 
 <p align="center">
-  <img src="readmeImages/Header%20Editor.png" alt="DSPRE Header Editor" width="700"/>
+  <img src="readmeImages/Map%20Editor.png" alt="DSPRE" width="700"/>
 </p>
 
 **DSPRE (DS Pokémon ROM Editor Reloaded)** is a tool for editing Nintendo DS Pokémon games (Generation IV). It allows you to modify maps, scripts, events, Pokémon data, trainers, and more.
