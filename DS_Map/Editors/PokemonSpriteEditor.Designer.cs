@@ -1,33 +1,28 @@
-﻿using DSPRE.Editors.Utils;
-using System.Drawing;
-using System.Windows.Forms;
-using static DSPRE.RomInfo;
+﻿namespace DSPRE.Editors {
+partial class PokemonSpriteEditor {
+    /// <summary>
+    /// Required designer variable.
+    /// </summary>
+    private System.ComponentModel.IContainer components = null;
 
-namespace DSPRE.Editors
-{
-    partial class PokemonSpriteEditor
-    {
-        private System.ComponentModel.IContainer components = null;
-        private ComboBox SaveBox;
-        private ComboBox BasePalette;
-        private ComboBox ShinyPalette;
-        private Button OpenPngs;
-        private Button LoadSheet;
-        private Button SaveSingle;
-        private Button MakeShiny;
-        private Button OpenOther;
-        private Button SaveChanges;
-        private Label lblMale;
-        private Label lblFemale;
-        private Label BackN;
-        private Label BackS;
-        private Label FrontN;
-        private Label FrontS;
-        private Label lblNormal;
-        private Label lblShiny;
+    /// <summary>
+    /// Clean up any resources being used.
+    /// </summary>
+    /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+    protected override void Dispose(bool disposing) {
+        if (disposing && (components != null)) {
+            components.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 
-        private void InitializeComponent()
-        {
+    #region Windows Form Designer generated code
+
+    /// <summary>
+    /// Required method for Designer support - do not modify
+    /// the contents of this method with the code editor.
+    /// </summary>
+    private void InitializeComponent() {
             this.OpenPngs = new System.Windows.Forms.Button();
             this.LoadSheet = new System.Windows.Forms.Button();
             this.SaveSingle = new System.Windows.Forms.Button();
@@ -106,7 +101,6 @@ namespace DSPRE.Editors
             this.OpenOther.Size = new System.Drawing.Size(100, 25);
             this.OpenOther.TabIndex = 12;
             this.OpenOther.Text = "Open Forms";
-            this.OpenOther.Visible = false;
             this.OpenOther.Click += new System.EventHandler(this.btnOpenOther_Click);
             // 
             // SaveChanges
@@ -339,6 +333,7 @@ namespace DSPRE.Editors
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.Name = "PokemonSpriteEditor";
+            this.Text = "Sprite Editor";
             ((System.ComponentModel.ISupportInitialize)(this.femaleBackNormalPic)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.maleBackNormalPic)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.femaleFrontNormalPic)).EndInit();
@@ -351,14 +346,35 @@ namespace DSPRE.Editors
 
         }
 
-        private PictureBox femaleBackNormalPic;
-        private PictureBox maleBackNormalPic;
-        private PictureBox femaleFrontNormalPic;
-        private PictureBox maleFrontNormalPic;
-        private PictureBox maleBackShinyPic;
-        private PictureBox femaleBackShinyPic;
-        private PictureBox maleFrontShinyPic;
-        private PictureBox femaleFrontShinyPic;
-        public ComboBox IndexBox;
+        #endregion
+
+        #region Control Declarations
+        private System.Windows.Forms.Button OpenPngs;
+        private System.Windows.Forms.Button LoadSheet;
+        private System.Windows.Forms.Button SaveSingle;
+        private System.Windows.Forms.Button MakeShiny;
+        private System.Windows.Forms.Button OpenOther;
+        private System.Windows.Forms.Button SaveChanges;
+        private System.Windows.Forms.Label lblMale;
+        private System.Windows.Forms.Label lblFemale;
+        private System.Windows.Forms.Label BackN;
+        private System.Windows.Forms.Label BackS;
+        private System.Windows.Forms.Label FrontN;
+        private System.Windows.Forms.Label FrontS;
+        private System.Windows.Forms.Label lblNormal;
+        private System.Windows.Forms.Label lblShiny;
+        private System.Windows.Forms.ComboBox BasePalette;
+        private System.Windows.Forms.ComboBox ShinyPalette;
+        private System.Windows.Forms.ComboBox SaveBox;
+        private System.Windows.Forms.PictureBox femaleBackNormalPic;
+        private System.Windows.Forms.PictureBox maleBackNormalPic;
+        private System.Windows.Forms.PictureBox femaleFrontNormalPic;
+        private System.Windows.Forms.PictureBox maleFrontNormalPic;
+        private System.Windows.Forms.PictureBox maleBackShinyPic;
+        private System.Windows.Forms.PictureBox femaleBackShinyPic;
+        private System.Windows.Forms.PictureBox maleFrontShinyPic;
+        private System.Windows.Forms.PictureBox femaleFrontShinyPic;
+        public System.Windows.Forms.ComboBox IndexBox;
+        #endregion
     }
 }

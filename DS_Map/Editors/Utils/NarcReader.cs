@@ -5,10 +5,16 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DSPRE.Editors.Utils
-{
-    public class NarcReader
-    {
+namespace DSPRE.Editors.Utils {
+    /// <summary>
+    /// Represents an entry in a NARC archive with its offset and size.
+    /// </summary>
+    public struct FileEntry {
+        public int Ofs;
+        public int Size;
+    }
+
+    public class NarcReader {
         public int Entrys;
 
         public FileEntry[] fe;
