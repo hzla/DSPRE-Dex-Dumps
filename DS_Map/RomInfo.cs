@@ -239,7 +239,16 @@ namespace DSPRE
                     isHGE = false;
                 }
             }
-            projectName = Path.GetFileNameWithoutExtension(romFolderName);
+            // Get the folder name and strip the _DSPRE_contents suffix to get the ROM name
+            string folderName = Path.GetFileName(romFolderName);
+            if (folderName.EndsWith(folderSuffix))
+            {
+                projectName = folderName.Substring(0, folderName.Length - folderSuffix.Length);
+            }
+            else
+            {
+                projectName = folderName;
+            }
 
             LoadGameFamily();
             LoadGameLanguage();
