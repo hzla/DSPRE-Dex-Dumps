@@ -293,6 +293,126 @@ namespace DSPRE.Editors {
 
         // Current form data based on game family
         private FormSpriteData[] currentFormData;
+
+        /// <summary>
+        /// Form sprite data for HeartGold/SoulSilver's OTHERPOKE NARC.
+        /// Based on GetMonSpriteCharAndPlttNarcIdsEx from game code.
+        /// Hex values from code: 0x48=72, 0x4E=78, 0x54=84, 0x58=88, 0x5C=92, 0x60=96, 0x40=64
+        /// Palettes: 0x9E=158, 0xA0=160, 0xA2=162, 0xAA=170, 0xB0=176, 0xB6=182, 0xBA=186, 0xBE=190, 0xC2=194
+        /// 0x84=132, 0x86=134, 0x8A=138, 0x96=150, 0x9A=154, 0xE6=230, 0xE8=232, 0xEC=236, 0xF8=248, 0xFC=252
+        /// </summary>
+        private FormSpriteData[] GetFormDataHGSS() {
+            return new FormSpriteData[] {
+                // Deoxys: character = 0 + (face/2) + form*2, palette = 0x9E (158) + shiny
+                new FormSpriteData("Deoxys - Normal",   0,  1, 158, 159),
+                new FormSpriteData("Deoxys - Attack",   2,  3, 158, 159),
+                new FormSpriteData("Deoxys - Defense",  4,  5, 158, 159),
+                new FormSpriteData("Deoxys - Speed",    6,  7, 158, 159),
+                
+                // Unown: character = 0x8 (8) + (face/2) + form*2, palette = 0xA0 (160) + shiny
+                new FormSpriteData("Unown - A",  8,  9, 160, 161),
+                new FormSpriteData("Unown - B", 10, 11, 160, 161),
+                new FormSpriteData("Unown - C", 12, 13, 160, 161),
+                new FormSpriteData("Unown - D", 14, 15, 160, 161),
+                new FormSpriteData("Unown - E", 16, 17, 160, 161),
+                new FormSpriteData("Unown - F", 18, 19, 160, 161),
+                new FormSpriteData("Unown - G", 20, 21, 160, 161),
+                new FormSpriteData("Unown - H", 22, 23, 160, 161),
+                new FormSpriteData("Unown - I", 24, 25, 160, 161),
+                new FormSpriteData("Unown - J", 26, 27, 160, 161),
+                new FormSpriteData("Unown - K", 28, 29, 160, 161),
+                new FormSpriteData("Unown - L", 30, 31, 160, 161),
+                new FormSpriteData("Unown - M", 32, 33, 160, 161),
+                new FormSpriteData("Unown - N", 34, 35, 160, 161),
+                new FormSpriteData("Unown - O", 36, 37, 160, 161),
+                new FormSpriteData("Unown - P", 38, 39, 160, 161),
+                new FormSpriteData("Unown - Q", 40, 41, 160, 161),
+                new FormSpriteData("Unown - R", 42, 43, 160, 161),
+                new FormSpriteData("Unown - S", 44, 45, 160, 161),
+                new FormSpriteData("Unown - T", 46, 47, 160, 161),
+                new FormSpriteData("Unown - U", 48, 49, 160, 161),
+                new FormSpriteData("Unown - V", 50, 51, 160, 161),
+                new FormSpriteData("Unown - W", 52, 53, 160, 161),
+                new FormSpriteData("Unown - X", 54, 55, 160, 161),
+                new FormSpriteData("Unown - Y", 56, 57, 160, 161),
+                new FormSpriteData("Unown - Z", 58, 59, 160, 161),
+                new FormSpriteData("Unown - !", 60, 61, 160, 161),
+                new FormSpriteData("Unown - ?", 62, 63, 160, 161),
+                
+                // Castform: character = 0x40 (64) + (face*2) + form, palette = 0xA2 (162) + (shiny*4) + form
+                new FormSpriteData("Castform - Normal", 64, 68, 162, 166),
+                new FormSpriteData("Castform - Sunny",  65, 69, 163, 167),
+                new FormSpriteData("Castform - Rainy",  66, 70, 164, 168),
+                new FormSpriteData("Castform - Snowy",  67, 71, 165, 169),
+                
+                // Burmy: character = 0x48 (72) + (face/2) + form*2, palette = 0xAA (170) + shiny + form*2
+                new FormSpriteData("Burmy - Plant", 72, 73, 170, 171),
+                new FormSpriteData("Burmy - Sandy", 74, 75, 172, 173),
+                new FormSpriteData("Burmy - Trash", 76, 77, 174, 175),
+                
+                // Wormadam: character = 0x4E (78) + (face/2) + form*2, palette = 0xB0 (176) + shiny + form*2
+                new FormSpriteData("Wormadam - Plant", 78, 79, 176, 177),
+                new FormSpriteData("Wormadam - Sandy", 80, 81, 178, 179),
+                new FormSpriteData("Wormadam - Trash", 82, 83, 180, 181),
+                
+                // Shellos: character = 0x54 (84) + face + form, palette = 0xB6 (182) + shiny + form*2
+                new FormSpriteData("Shellos - West", 84, 86, 182, 183, true),
+                new FormSpriteData("Shellos - East", 85, 87, 184, 185, true),
+                
+                // Gastrodon: character = 0x58 (88) + face + form, palette = 0xBA (186) + shiny + form*2
+                new FormSpriteData("Gastrodon - West", 88, 90, 186, 187, true),
+                new FormSpriteData("Gastrodon - East", 89, 91, 188, 189, true),
+                
+                // Cherrim: character = 0x5C (92) + face + form, palette = 0xBE (190) + (shiny*2) + form
+                new FormSpriteData("Cherrim - Overcast", 92, 94, 190, 192, true),
+                new FormSpriteData("Cherrim - Sunshine", 93, 95, 191, 193, true),
+                
+                // Arceus: character = 0x60 (96) + (face/2) + form*2, palette = 0xC2 (194) + shiny + form*2
+                new FormSpriteData("Arceus - Normal",   96,  97, 194, 195),
+                new FormSpriteData("Arceus - Fighting", 98,  99, 196, 197),
+                new FormSpriteData("Arceus - Flying",  100, 101, 198, 199),
+                new FormSpriteData("Arceus - Poison",  102, 103, 200, 201),
+                new FormSpriteData("Arceus - Ground",  104, 105, 202, 203),
+                new FormSpriteData("Arceus - Rock",    106, 107, 204, 205),
+                new FormSpriteData("Arceus - Bug",     108, 109, 206, 207),
+                new FormSpriteData("Arceus - Ghost",   110, 111, 208, 209),
+                new FormSpriteData("Arceus - Steel",   112, 113, 210, 211),
+                new FormSpriteData("Arceus - ???",     114, 115, 212, 213),
+                new FormSpriteData("Arceus - Fire",    116, 117, 214, 215),
+                new FormSpriteData("Arceus - Water",   118, 119, 216, 217),
+                new FormSpriteData("Arceus - Grass",   120, 121, 218, 219),
+                new FormSpriteData("Arceus - Electric",122, 123, 220, 221),
+                new FormSpriteData("Arceus - Psychic", 124, 125, 222, 223),
+                new FormSpriteData("Arceus - Ice",     126, 127, 224, 225),
+                new FormSpriteData("Arceus - Dragon",  128, 129, 226, 227),
+                new FormSpriteData("Arceus - Dark",    130, 131, 228, 229),
+                
+                // Egg: character = 0x84 (132) + form, palette = 0xE6 (230) + form
+                new FormSpriteData("Egg",         132, 132, 230, 230),
+                new FormSpriteData("Manaphy Egg", 133, 133, 231, 231),
+                
+                // Shaymin: character = 0x86 (134) + (face/2) + form*2, palette = 0xE8 (232) + shiny + form*2
+                new FormSpriteData("Shaymin - Land", 134, 135, 232, 233),
+                new FormSpriteData("Shaymin - Sky",  136, 137, 234, 235),
+                
+                // Rotom: character = 0x8A (138) + (face/2) + form*2, palette = 0xEC (236) + shiny + form*2
+                new FormSpriteData("Rotom - Normal", 138, 139, 236, 237),
+                new FormSpriteData("Rotom - Heat",   140, 141, 238, 239),
+                new FormSpriteData("Rotom - Wash",   142, 143, 240, 241),
+                new FormSpriteData("Rotom - Frost",  144, 145, 242, 243),
+                new FormSpriteData("Rotom - Fan",    146, 147, 244, 245),
+                new FormSpriteData("Rotom - Mow",    148, 149, 246, 247),
+                
+                // Giratina: character = 0x96 (150) + (face/2) + form*2, palette = 0xF8 (248) + shiny + form*2
+                new FormSpriteData("Giratina - Altered", 150, 151, 248, 249),
+                new FormSpriteData("Giratina - Origin",  152, 153, 250, 251),
+                
+                // Pichu (Spiky-ear): character = 0x9A (154) + (face/2) + form*2, palette = 0xFC (252) + shiny + form*2
+                // Note: form 0 is normal Pichu (uses main NARC), form 1 is Spiky-ear
+                new FormSpriteData("Pichu - Normal",    154, 155, 252, 253),
+                new FormSpriteData("Pichu - Spiky-ear", 156, 157, 254, 255),
+            };
+        }
         #endregion
 
         #region Instance Fields
@@ -1112,9 +1232,20 @@ namespace DSPRE.Editors {
                 ChangeLoadedFile(1);
             } else {
                 // Load form data based on game family
-                currentFormData = RomInfo.gameFamily == RomInfo.GameFamilies.DP 
-                    ? GetFormDataDP() 
-                    : GetFormDataPt(); // Platinum and HGSS use same structure (TODO: verify HGSS)
+                switch (RomInfo.gameFamily) {
+                    case RomInfo.GameFamilies.DP:
+                        currentFormData = GetFormDataDP();
+                        break;
+                    case RomInfo.GameFamilies.Plat:
+                        currentFormData = GetFormDataPt();
+                        break;
+                    case RomInfo.GameFamilies.HGSS:
+                        currentFormData = GetFormDataHGSS();
+                        break;
+                    default:
+                        currentFormData = GetFormDataPt(); // Fallback to Platinum
+                        break;
+                }
                 
                 narcReader = new NarcReader(RomInfo.gameDirs[DirNames.otherPokemonBattleSprites].packedDir);
                 usedEntries = new bool[narcReader.fe.Length];
