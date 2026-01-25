@@ -177,10 +177,13 @@ namespace DSPRE {
 
             try
             {
+                Application.DoEvents();
                 unpack.Start();
-                output = unpack.StandardOutput.ReadToEnd();
-                errors = unpack.StandardError.ReadToEnd().Trim();
+                var outputTask = unpack.StandardOutput.ReadToEndAsync();
+                var errorTask = unpack.StandardError.ReadToEndAsync();
                 unpack.WaitForExit();
+                output = outputTask.Result;
+                errors = errorTask.Result.Trim();
 
                 if (!string.IsNullOrWhiteSpace(output))
                 {
@@ -262,10 +265,13 @@ namespace DSPRE {
 
             try
             {
+                Application.DoEvents();
                 repack.Start();
-                output = repack.StandardOutput.ReadToEnd();
-                errors = repack.StandardError.ReadToEnd().Trim();
+                var outputTask = repack.StandardOutput.ReadToEndAsync();
+                var errorTask = repack.StandardError.ReadToEndAsync();
                 repack.WaitForExit();
+                output = outputTask.Result;
+                errors = errorTask.Result.Trim();
 
                 if (!string.IsNullOrWhiteSpace(output))
                 {
@@ -418,9 +424,11 @@ namespace DSPRE {
                 buildTemp.StartInfo.RedirectStandardError = true;
 
                 AppLogger.Info("Building temp ROM: " + buildTemp.StartInfo.Arguments);
+                Application.DoEvents();
                 buildTemp.Start();
-                string errors = buildTemp.StandardError.ReadToEnd();
+                var errorTask = buildTemp.StandardError.ReadToEndAsync();
                 buildTemp.WaitForExit();
+                string errors = errorTask.Result;
 
                 if (buildTemp.ExitCode != 0)
                 {
