@@ -18,7 +18,7 @@ namespace DSPRE
 {
     internal class DocTool
     {
-
+        private static bool _eventEditorPrereqsReady = false;
         public static void ExportAll()
         {
             // Create the subfolder Docs in the executable directory and write the CSV files there
@@ -32,12 +32,11 @@ namespace DSPRE
             string moveDataPath = Path.Combine(docsFolderPath, "MoveData.csv");
             string TMHMDataPath = Path.Combine(docsFolderPath, "TMHMData.csv");
             string eggMoveDataPath = Path.Combine(docsFolderPath, "EggMoveData.csv");
-
-
-            // NEW
             string eventOverworldsPath = Path.Combine(docsFolderPath, "EventOverworlds.csv");
             string mapHeadersPath = Path.Combine(docsFolderPath, "MapHeaders.csv");
             string encounterJsonPath = Path.Combine(docsFolderPath, "Encounters.json");
+
+            EnsureEventEditorPrereqs();
 
             DSUtils.TryUnpackNarcs(new List<DirNames> {
                 DirNames.personalPokeData,
@@ -46,14 +45,10 @@ namespace DSPRE
                 DirNames.trainerParty,
                 DirNames.trainerProperties,
                 DirNames.moveData,
-                DirNames.itemData,
-
-                // NEW
-                DirNames.eventFiles,
+                DirNames.itemData,             
                 DirNames.encounters,
                 DirNames.scripts,
                 DirNames.eventFiles
-
             });
 
             string[] pokeNames = RomInfo.GetPokemonNames();
@@ -93,15 +88,25 @@ namespace DSPRE
             eggMoveEditor.PopulateEggMoveData();
             ExportEggMoveDataToCSV(eggMoveEditor.GetEggMoveData(), eggMoveDataPath, pokeNames, moveNames);
 
-            // NEW
             ExportEventOverworldsToCSV(eventOverworldsPath);
             ExportMapHeadersToCSV(mapHeadersPath);
             ExportEncountersToJson(encounterJsonPath);
-
-            // Must load Scripts tab first
             ExportScriptsToDocs(Path.Combine(docsFolderPath, "scripts"));
 
             MessageBox.Show($"CSV files exported successfully to path: {docsFolderPath}");
+        }
+
+        private static void EnsureEventEditorPrereqs()
+        {
+            if (_eventEditorPrereqsReady) return;
+            _eventEditorPrereqsReady = true;
+
+            // Match the core unpack set from EventEditor.SetupEventEditor (minus UI stuff)
+            DSUtils.TryUnpackNarcs(new List<DirNames> {
+                DirNames.areaData,
+                DirNames.trainerProperties,
+            });
+
         }
 
         private static void ExportEncountersToJson(string outputPath)
