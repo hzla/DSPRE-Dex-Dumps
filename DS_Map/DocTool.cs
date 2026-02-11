@@ -35,6 +35,8 @@ namespace DSPRE
             string eventOverworldsPath = Path.Combine(docsFolderPath, "EventOverworlds.csv");
             string mapHeadersPath = Path.Combine(docsFolderPath, "MapHeaders.csv");
             string encounterJsonPath = Path.Combine(docsFolderPath, "Encounters.json");
+            string eventSpawnablesPath = Path.Combine(docsFolderPath, "EventSpawnables.csv");
+
 
             EnsureEventEditorPrereqs();
 
@@ -89,6 +91,7 @@ namespace DSPRE
             ExportEggMoveDataToCSV(eggMoveEditor.GetEggMoveData(), eggMoveDataPath, pokeNames, moveNames);
 
             ExportEventOverworldsToCSV(eventOverworldsPath);
+            ExportEventSpawnablesToCSV(eventSpawnablesPath);
             ExportMapHeadersToCSV(mapHeadersPath);
             ExportEncountersToJson(encounterJsonPath);
             ExportScriptsToDocs(Path.Combine(docsFolderPath, "scripts"));
@@ -500,6 +503,45 @@ namespace DSPRE
 
             return -1; // should not happen, but keeps export robust
         }
+
+        private static void ExportEventSpawnablesToCSV(string eventSpawnablesPath)
+        {
+            string eventsDir = RomInfo.gameDirs[DirNames.eventFiles].unpackedDir;
+
+            if (!Directory.Exists(eventsDir))
+                throw new DirectoryNotFoundException($"Event files directory not found: {eventsDir}");
+
+            var files = Directory.GetFiles(eventsDir)
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            using (var sw = new StreamWriter(eventSpawnablesPath))
+            {
+                sw.WriteLine("EventFileID,SpawnableIndex,ScriptNumber");
+
+                foreach (var filePath in files)
+                {
+                    string name = Path.GetFileName(filePath);
+
+                    // Event files are typically named "0000", "0001", ...
+                    if (!int.TryParse(name, out int eventFileId))
+                        continue;
+
+                    EventFile ev;
+                    using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        ev = new EventFile(fs);
+                    }
+
+                    for (int i = 0; i < ev.spawnables.Count; i++)
+                    {
+                        var sp = ev.spawnables[i];
+                        sw.WriteLine($"{eventFileId},{i},{sp.scriptNumber}");
+                    }
+                }
+            }
+        }
+
 
         private static void ExportEventOverworldsToCSV(string eventOverworldsPath)
         {
