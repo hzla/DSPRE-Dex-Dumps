@@ -37,16 +37,17 @@ namespace DSPRE
             string trainerDataPath = Path.Combine(docsFolderPath, "TrainerData.txt");
             string moveDataPath = Path.Combine(docsFolderPath, "MoveData.csv");
             string TMHMDataPath = Path.Combine(docsFolderPath, "TMHMData.csv");
+            string eggMoveDataPath = Path.Combine(docsFolderPath, "EggMoveData.csv");
 
             DSUtils.TryUnpackNarcs(new List<DirNames> {
-        DirNames.personalPokeData,
-        DirNames.learnsets,
-        DirNames.evolutions,
-        DirNames.trainerParty,
-        DirNames.trainerProperties,
-        DirNames.moveData,
-        DirNames.itemData
-    });
+                DirNames.personalPokeData,
+                DirNames.learnsets,
+                DirNames.evolutions,
+                DirNames.trainerParty,
+                DirNames.trainerProperties,
+                DirNames.moveData,
+                DirNames.itemData
+            });
 
             string[] pokeNames = RomInfo.GetPokemonNames();
             string[] itemNames = RomInfo.GetItemNames();
@@ -73,6 +74,10 @@ namespace DSPRE
             {
                 Directory.CreateDirectory(docsFolderPath);
             }
+
+            var eggMoveEditor = new EggMoveEditor();
+            eggMoveEditor.PopulateEggMoveData();
+            ExportEggMoveDataToCSV(eggMoveEditor.GetEggMoveData(), eggMoveDataPath, pokeNames, moveNames);
 
             ExportPersonalDataToCSV(pokePersonalDataPath, pokeNames, abilityNames, typeNames, itemNames);
             ExportLearnsetDataToCSV(learnsetDataPath, pokeNames, moveNames);
@@ -104,17 +109,17 @@ namespace DSPRE
             EnsureEventEditorPrereqs();
 
             DSUtils.TryUnpackNarcs(new List<DirNames> {
-        DirNames.personalPokeData,
-        DirNames.learnsets,
-        DirNames.evolutions,
-        DirNames.trainerParty,
-        DirNames.trainerProperties,
-        DirNames.moveData,
-        DirNames.itemData,
-        DirNames.encounters,
-        DirNames.scripts,
-        DirNames.eventFiles
-    });
+                DirNames.personalPokeData,
+                DirNames.learnsets,
+                DirNames.evolutions,
+                DirNames.trainerParty,
+                DirNames.trainerProperties,
+                DirNames.moveData,
+                DirNames.itemData,
+                DirNames.encounters,
+                DirNames.scripts,
+                DirNames.eventFiles
+            });
 
             string[] pokeNames = RomInfo.GetPokemonNames();
             string[] itemNames = RomInfo.GetItemNames();
